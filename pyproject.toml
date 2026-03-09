@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scraperx"
+version = "1.0.0"
+description = "Multi-method X/Twitter scraper + YouTube transcriber. No API keys required."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "prezis"},
+]
+keywords = ["twitter", "x", "scraper", "youtube", "transcript", "fxtwitter"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.optional-dependencies]
+twscrape = ["twscrape>=0.12"]
+whisper = ["openai-whisper>=20231117"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+scraperx = "scraperx.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/prezis/scraperx"
+Repository = "https://github.com/prezis/scraperx"
+Issues = "https://github.com/prezis/scraperx/issues"
+
+[tool.setuptools.packages.find]
+include = ["scraperx*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
