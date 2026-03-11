@@ -17,6 +17,7 @@ import sys
 from .scraper import XScraper, TWEET_URL_RE
 from .youtube_scraper import YouTubeScraper, YOUTUBE_URL_RE
 from .profile import get_profile, parse_profile_url, PROFILE_URL_RE
+from .search import search_tweets
 
 
 def _is_youtube_url(url: str) -> bool:
@@ -35,7 +36,19 @@ def main():
     parser = argparse.ArgumentParser(
         description="Scrape X/Twitter tweets, profiles, threads, or YouTube transcripts"
     )
-    parser.add_argument("url", help="Tweet URL, profile URL, or YouTube URL")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # search subcommand
+    search_parser = subparsers.add_parser("search", help="Search tweets via DuckDuckGo + FxTwitter")
+    search_parser.add_argument("query", nargs="+", help="Search query (supports from:user, quotes, etc.)")
+    search_parser.add_argument("--limit", "-n", type=int, default=10, help="Max results (default: 10)")
+    search_parser.add_argument("--time", "-t", choices=["d", "w", "m", "y"], help="Time filter: d=day, w=week, m=month")
+    search_parser.add_argument("--json", action="store_true", help="Output JSON")
+    search_parser.add_argument("--fast", action="store_true", help="Skip enrichment, return IDs only")
+    search_parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+
+    # Default: URL-based scraping (backward compatible)
+    parser.add_argument("url", nargs="?", help="Tweet URL, profile URL, or YouTube URL")
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
     parser.add_argument("--thread", action="store_true", help="Fetch full thread")
     parser.add_argument("--cookies", help="Path to cookies file for yt-dlp")
@@ -48,6 +61,15 @@ def main():
         level=logging.DEBUG if args.verbose else logging.WARNING,
         format="%(levelname)s: %(message)s",
     )
+
+    # Handle search subcommand
+    if args.command == "search":
+        _handle_search(args)
+        return
+
+    if not args.url:
+        parser.print_help()
+        sys.exit(1)
 
     if _is_youtube_url(args.url):
         _handle_youtube(args)
@@ -219,6 +241,52 @@ def _handle_profile_by_handle(args):
         if profile.joined:
             print(f"Joined: {profile.joined}")
         print(f"(via {profile.source_method})")
+
+
+def _handle_search(args):
+    query = " ".join(args.query)
+    try:
+        tweets = search_tweets(
+            query,
+            limit=args.limit,
+            time_filter=getattr(args, "time", None),
+            enrich=not args.fast,
+        )
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not tweets:
+        print("No tweets found.", file=sys.stderr)
+        sys.exit(0)
+
+    if args.json:
+        out = []
+        for t in tweets:
+            out.append({
+                "id": t.id,
+                "text": t.text,
+                "author": t.author,
+                "author_handle": t.author_handle,
+                "likes": t.likes,
+                "retweets": t.retweets,
+                "replies": t.replies,
+                "views": t.views,
+                "media_urls": t.media_urls,
+                "source_method": t.source_method,
+            })
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+    else:
+        print(f"Found {len(tweets)} tweets for: {query}\n")
+        for i, t in enumerate(tweets, 1):
+            print(f"[{i}] @{t.author_handle} ({t.author})")
+            text_preview = t.text[:200] + ("..." if len(t.text) > 200 else "")
+            print(f"    {text_preview}")
+            if t.likes or t.views:
+                print(f"    {t.likes} likes | {t.retweets} RT | {t.views:,} views")
+            print(f"    https://x.com/{t.author_handle}/status/{t.id}")
+            print(f"    (via {t.source_method})")
+            print()
 
 
 if __name__ == "__main__":
