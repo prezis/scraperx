@@ -30,6 +30,11 @@ scraperx https://x.com/elonmusk
 # Fetch full thread
 scraperx https://x.com/user/status/123456 --thread
 
+# Search tweets (zero credentials, via DuckDuckGo + FxTwitter)
+scraperx search "Meteora DLMM strategy" --limit 10
+scraperx search "from:elonmusk AI agents" --time w   # last week
+scraperx search "prediction market" --json            # JSON output
+
 # Transcribe YouTube video
 scraperx https://youtube.com/watch?v=dQw4w9WgXcQ
 
@@ -46,7 +51,7 @@ python -m scraperx https://x.com/user/status/123456
 ## Python API
 
 ```python
-from scraperx import XScraper, get_profile, get_thread, SocialDB
+from scraperx import XScraper, get_profile, get_thread, search_tweets, SocialDB
 
 # Tweet
 scraper = XScraper()
@@ -68,6 +73,11 @@ yt = YouTubeScraper()
 result = yt.get_transcript("https://youtube.com/watch?v=...")
 print(result.transcript[:500])
 
+# Search tweets (DuckDuckGo discovery + FxTwitter enrichment)
+results = search_tweets("Solana LP strategy", limit=5, time_filter="w")
+for t in results:
+    print(f"@{t.author_handle}: {t.text[:100]}")
+
 # Token extraction
 from scraperx import extract_token_mentions
 mentions = extract_token_mentions("$SOL to the moon, $WIF looking good")
@@ -83,25 +93,25 @@ with SocialDB() as db:
 ## Architecture
 
 ```
-                         URL Input
-                            |
-                    __main__.py (CLI router)
-                   /        |        \         \
-              Tweet?    Profile?   Thread?   YouTube?
-                |          |         |          |
-           scraper.py  profile.py thread.py youtube_scraper.py
-                |          |         |          |
-        Fallback Chain  FxTwitter  Walk Up   auto-captions
-        ┌──────────┐    User API   via IDs   → whisper
-        │FxTwitter │                          fallback
-        │vxTwitter │
-        │yt-dlp    │
-        │oembed    │
-        └──────────┘
-                \         |        /
-                 social_db.py (SQLite)
-                        |
-              token_extractor.py
+                         URL / Query Input
+                              |
+                      __main__.py (CLI router)
+                   /     |        \         \        \
+             Tweet?  Profile?  Thread?  YouTube?  Search?
+               |        |        |         |         |
+          scraper.py profile.py thread.py yt_scraper search.py
+               |        |        |         |         |
+       Fallback Chain FxTwitter Walk Up  captions  DDG discovery
+       ┌──────────┐   User API  via IDs  →whisper  + FxTwitter
+       │FxTwitter │                                 enrichment
+       │vxTwitter │
+       │yt-dlp    │
+       │oembed    │
+       └──────────┘
+                \        |       /
+                social_db.py (SQLite)
+                       |
+             token_extractor.py
 ```
 
 ## Fallback Chain
@@ -126,6 +136,7 @@ The chain ensures you always get at least the tweet text, even if third-party AP
 | `scraper.py` | Tweet scraping with 4-method fallback. `XScraper().get_tweet(url)` |
 | `profile.py` | Profile data (bio, followers, verified). `get_profile("handle")` |
 | `thread.py` | Full thread reconstruction. `get_thread(url)` |
+| `search.py` | Tweet search via DuckDuckGo + FxTwitter. `search_tweets("query")` |
 | `youtube_scraper.py` | Video transcription (auto-captions or Whisper). `YouTubeScraper().get_transcript(url)` |
 
 ### Data & Storage
@@ -156,6 +167,19 @@ Options:
   --whisper-model MODEL Whisper model: base, medium, large (default: base)
   --force-whisper       Skip auto-captions, use Whisper directly
   -v, --verbose         Debug logging
+
+
+scraperx search QUERY [OPTIONS]
+
+Positional:
+  QUERY                 Search terms (supports from:user, quotes, DDG operators)
+
+Options:
+  -n, --limit N         Max results (default: 10)
+  -t, --time {d,w,m,y}  Time filter: d=day, w=week, m=month, y=year
+  --json                Output as JSON
+  --fast                Return tweet IDs only (skip FxTwitter enrichment)
+  -v, --verbose         Debug logging
 ```
 
 Auto-detection routes the URL to the right handler:
@@ -163,6 +187,7 @@ Auto-detection routes the URL to the right handler:
 - `x.com/handle` → profile
 - `youtube.com/watch?v=ID` or `youtu.be/ID` → YouTube
 - `@handle` or bare `handle` → profile
+- `search QUERY` → DuckDuckGo tweet discovery + FxTwitter enrichment
 
 ## Data Storage
 
@@ -183,7 +208,7 @@ Photos: appends `:large` suffix for full resolution from `pbs.twimg.com`.
 ## Testing
 
 ```bash
-# All tests (127 tests, ~1.5s, zero network calls)
+# All tests (123 tests, ~1s, zero network calls)
 pytest -v
 
 # Just tweet scraper
