@@ -33,6 +33,11 @@ TWEET_URL_RE = re.compile(
 )
 
 
+class TweetNotFoundError(RuntimeError):
+    """Raised when a tweet does not exist (deleted, private, or suspended)."""
+    pass
+
+
 @dataclass
 class Tweet:
     """Parsed tweet data."""
@@ -79,7 +84,19 @@ def _http_get_json(url: str, timeout: int = 15) -> dict:
         "Accept": "application/json",
     })
     with urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode())
+        body = resp.read().decode()
+        content_type = resp.headers.get("Content-Type", "")
+        if "html" in content_type and "json" not in content_type:
+            raise ValueError(
+                f"Expected JSON but got HTML from {host} "
+                f"(tweet may not exist or API returned an error page)"
+            )
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Invalid JSON from {host}: {e} (first 200 chars: {body[:200]})"
+            ) from e
 
 
 def _best_media_url(media_item: dict) -> str:
@@ -227,6 +244,23 @@ class XScraper:
                 logger.warning("Method %s failed: %s", name, e)
                 errors.append(f"{name}: {e}")
 
+        # Detect if this is likely a deleted/non-existent tweet (all 404s)
+        # vs an infrastructure problem (mixed errors)
+        not_found_indicators = ("404", "not found", "NOT_FOUND", "not exist")
+        all_not_found = all(
+            any(ind.lower() in err.lower() for ind in not_found_indicators)
+            for err in errors
+            if "yt-dlp" not in err  # skip yt-dlp since it may not be installed
+        )
+        non_ytdlp_errors = [e for e in errors if "yt-dlp" not in e]
+
+        if all_not_found and non_ytdlp_errors:
+            raise TweetNotFoundError(
+                f"Tweet {tweet_id} not found (likely deleted, private, or "
+                f"suspended account). All API methods returned 404.\n"
+                f"Details: {'; '.join(errors)}"
+            )
+
         raise RuntimeError(
             f"All scraping methods failed for tweet {tweet_id}:\n"
             + "\n".join(errors)
@@ -314,14 +348,21 @@ class XScraper:
     # --- Method 3: yt-dlp (requires cookies or login) ---
 
     def _via_ytdlp(self, user: str, tweet_id: str) -> Tweet:
+        import shutil
+        if not shutil.which("yt-dlp"):
+            raise RuntimeError("yt-dlp is not installed (pip install yt-dlp)")
+
         cmd = ["yt-dlp", "--dump-json", "--no-download"]
         if self.ytdlp_cookies:
             cmd.extend(["--cookies", self.ytdlp_cookies])
         cmd.append(f"https://x.com/{user}/status/{tweet_id}")
 
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30
-        )
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30
+            )
+        except FileNotFoundError:
+            raise RuntimeError("yt-dlp is not installed (pip install yt-dlp)")
         if result.returncode != 0:
             raise RuntimeError(f"yt-dlp exit {result.returncode}: {result.stderr[:200]}")
 

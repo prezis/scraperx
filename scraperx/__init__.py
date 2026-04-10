@@ -1,5 +1,5 @@
 """ScraperX — multi-method X/Twitter scraper + YouTube transcriber."""
-from .scraper import XScraper, Tweet
+from .scraper import XScraper, Tweet, TweetNotFoundError
 from .profile import XProfile, get_profile
 from .thread import Thread, get_thread
 from .search import search_tweets
@@ -9,7 +9,7 @@ from .social_db import SocialDB
 __version__ = "1.1.0"
 
 __all__ = [
-    "XScraper", "Tweet",
+    "XScraper", "Tweet", "TweetNotFoundError",
     "XProfile", "get_profile",
     "Thread", "get_thread",
     "search_tweets",

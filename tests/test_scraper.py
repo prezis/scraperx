@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch, MagicMock
 import pytest
 
-from scraperx.scraper import XScraper, Tweet, parse_tweet_url, _best_media_url, _strip_html
+from scraperx.scraper import XScraper, Tweet, TweetNotFoundError, parse_tweet_url, _best_media_url, _strip_html
 
 
 # --- URL parsing ---
@@ -113,6 +113,15 @@ class TestFallbackChain:
     def test_all_fail(self, *mocks):
         scraper = XScraper()
         with pytest.raises(RuntimeError, match="All scraping methods failed"):
+            scraper.get_tweet("https://x.com/u/status/1")
+
+    @patch.object(XScraper, "_via_oembed", side_effect=RuntimeError("HTTP Error 404"))
+    @patch.object(XScraper, "_via_ytdlp", side_effect=RuntimeError("yt-dlp is not installed"))
+    @patch.object(XScraper, "_via_vxtwitter", side_effect=RuntimeError("not found 404"))
+    @patch.object(XScraper, "_via_fxtwitter", side_effect=ValueError("FxTwitter returned code 404"))
+    def test_all_404_raises_tweet_not_found(self, *mocks):
+        scraper = XScraper()
+        with pytest.raises(TweetNotFoundError, match="not found"):
             scraper.get_tweet("https://x.com/u/status/1")
 
 
