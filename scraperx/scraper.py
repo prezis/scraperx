@@ -44,9 +44,12 @@ class Tweet:
     retweets: int = 0
     replies: int = 0
     views: int = 0
+    author_avatar: str = ""
+    author_id: str = ""
     media_urls: list[str] = field(default_factory=list)
     article_title: Optional[str] = None
     article_text: Optional[str] = None
+    quoted_tweet: Optional['Tweet'] = None
     source_method: str = ""
     raw: dict = field(default_factory=dict, repr=False)
 
@@ -126,6 +129,68 @@ def _strip_html(html: str) -> str:
     return " ".join(s.parts).strip()
 
 
+_MAX_QUOTE_DEPTH = 3
+
+
+def _extract_article(obj: dict) -> tuple[Optional[str], Optional[str]]:
+    """Extract article title and full text from a tweet or quote dict."""
+    article = obj.get("article")
+    if not article:
+        return None, None
+    title = article.get("title")
+    text = article.get("preview_text")
+    content = article.get("content", {})
+    blocks = content.get("blocks", []) if isinstance(content, dict) else []
+    if blocks:
+        parts = []
+        for block in blocks:
+            txt = block.get("text", "").strip()
+            if txt:
+                parts.append(txt)
+        if parts:
+            text = "\n".join(parts)
+    return title, text
+
+
+def _parse_quoted_tweet(quote: dict, depth: int = 0) -> 'Tweet':
+    """Parse a quoted tweet dict from FxTwitter into a Tweet, recursively."""
+    media_urls: list[str] = []
+    if quote.get("media") and quote["media"].get("all"):
+        for m in quote["media"]["all"]:
+            media_urls.append(_best_media_url(m))
+
+    article_title, article_text = _extract_article(quote)
+
+    text = quote.get("text", "")
+    if not text and article_text:
+        text = article_text
+    elif not text:
+        raw_text = quote.get("raw_text")
+        if isinstance(raw_text, dict) and raw_text.get("text"):
+            text = raw_text["text"]
+
+    nested_quote = None
+    if depth < _MAX_QUOTE_DEPTH and quote.get("quote"):
+        nested_quote = _parse_quoted_tweet(quote["quote"], depth + 1)
+
+    return Tweet(
+        id=str(quote.get("id", "")),
+        text=text,
+        author=quote.get("author", {}).get("name", ""),
+        author_handle=quote.get("author", {}).get("screen_name", ""),
+        author_avatar=quote.get("author", {}).get("avatar_url", ""),
+        author_id=str(quote.get("author", {}).get("id", "")),
+        likes=quote.get("likes", 0),
+        retweets=quote.get("retweets", 0),
+        replies=quote.get("replies", 0),
+        views=quote.get("views", 0),
+        media_urls=media_urls,
+        article_title=article_title,
+        article_text=article_text,
+        quoted_tweet=nested_quote,
+    )
+
+
 class XScraper:
     """Multi-method X/Twitter scraper with automatic fallback."""
 
@@ -182,21 +247,7 @@ class XScraper:
             for m in t["media"]["all"]:
                 media_urls.append(_best_media_url(m))
 
-        article_title = None
-        article_text = None
-        if t.get("article"):
-            article_title = t["article"].get("title")
-            # Article text assembled from content.blocks[]
-            article_text = t["article"].get("preview_text")
-            content = t["article"].get("content", {})
-            blocks = content.get("blocks", []) if isinstance(content, dict) else []
-            if blocks:
-                parts = []
-                for block in blocks:
-                    txt = block.get("text", "").strip()
-                    if txt:
-                        parts.append(txt)
-                article_text = "\n".join(parts) if parts else None
+        article_title, article_text = _extract_article(t)
 
         # For article-only tweets, use article preview/text as tweet text
         text = t.get("text", "")
@@ -205,11 +256,18 @@ class XScraper:
         elif not text and t.get("raw_text", {}).get("text"):
             text = t["raw_text"]["text"]
 
+        # Quoted tweet expansion
+        quoted_tweet = None
+        if t.get("quote"):
+            quoted_tweet = _parse_quoted_tweet(t["quote"], depth=0)
+
         return Tweet(
             id=tweet_id,
             text=text,
             author=t.get("author", {}).get("name", user),
             author_handle=t.get("author", {}).get("screen_name", user),
+            author_avatar=t.get("author", {}).get("avatar_url", ""),
+            author_id=str(t.get("author", {}).get("id", "")),
             likes=t.get("likes", 0),
             retweets=t.get("retweets", 0),
             replies=t.get("replies", 0),
@@ -217,6 +275,7 @@ class XScraper:
             media_urls=media_urls,
             article_title=article_title,
             article_text=article_text,
+            quoted_tweet=quoted_tweet,
             raw=data,
         )
 
@@ -233,6 +292,11 @@ class XScraper:
             elif isinstance(m, dict):
                 media_urls.append(_best_media_url(m))
 
+        # vxTwitter may include quote data
+        quoted_tweet = None
+        if data.get("quote"):
+            quoted_tweet = _parse_quoted_tweet(data["quote"], depth=0)
+
         return Tweet(
             id=tweet_id,
             text=data.get("text", ""),
@@ -243,6 +307,7 @@ class XScraper:
             replies=data.get("replies", 0),
             views=data.get("views", 0),
             media_urls=media_urls,
+            quoted_tweet=quoted_tweet,
             raw=data,
         )
 

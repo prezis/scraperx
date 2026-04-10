@@ -91,7 +91,7 @@ class TestGetThread:
         """A standalone tweet returns Thread with 1 tweet."""
         mock_get.return_value = _make_fxtwitter_response("123", text="standalone")
 
-        thread = get_thread("https://x.com/testuser/status/123")
+        thread = get_thread("https://x.com/testuser/status/123", walk_down=False)
 
         assert thread.total_tweets == 1
         assert thread.root_tweet.id == "123"
@@ -108,7 +108,7 @@ class TestGetThread:
             _make_fxtwitter_response("1", text="first"),
         ]
 
-        thread = get_thread("https://x.com/testuser/status/3")
+        thread = get_thread("https://x.com/testuser/status/3", walk_down=False)
 
         assert thread.total_tweets == 3
         assert thread.root_tweet.id == "1"

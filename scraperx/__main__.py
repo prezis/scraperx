@@ -14,7 +14,7 @@ import json
 import logging
 import sys
 
-from .scraper import XScraper, TWEET_URL_RE
+from .scraper import XScraper, Tweet, TWEET_URL_RE
 from .youtube_scraper import YouTubeScraper, YOUTUBE_URL_RE
 from .profile import get_profile, parse_profile_url, PROFILE_URL_RE
 from .search import search_tweets
@@ -123,6 +123,57 @@ def _handle_youtube(args):
             print(result.transcript)
 
 
+def _tweet_to_dict(tweet: Tweet) -> dict:
+    """Serialize a Tweet to dict, recursively including quoted_tweet."""
+    d = {
+        "id": tweet.id,
+        "text": tweet.text,
+        "author": tweet.author,
+        "author_handle": tweet.author_handle,
+        "likes": tweet.likes,
+        "retweets": tweet.retweets,
+        "replies": tweet.replies,
+        "views": tweet.views,
+        "media_urls": tweet.media_urls,
+        "article_title": tweet.article_title,
+        "article_text": tweet.article_text,
+        "source_method": tweet.source_method,
+    }
+    if tweet.quoted_tweet:
+        d["quoted_tweet"] = _tweet_to_dict(tweet.quoted_tweet)
+    return d
+
+
+def _print_quoted_tweet(tweet: Tweet, indent: int = 2) -> None:
+    """Print a quoted tweet with indentation, recursing for nested quotes."""
+    prefix = " " * indent + "| "
+    print(f"\n{' ' * indent}[Quote] @{tweet.author_handle} ({tweet.author}):")
+    for line in tweet.text.splitlines():
+        print(f"{prefix}{line}")
+    if tweet.article_title:
+        print(f"{prefix}")
+        print(f"{prefix}[Article: {tweet.article_title}]")
+        if tweet.article_text:
+            for line in tweet.article_text.splitlines()[:10]:
+                print(f"{prefix}  {line}")
+            total_lines = len(tweet.article_text.splitlines())
+            if total_lines > 10:
+                print(f"{prefix}  ... [{total_lines - 10} more lines]")
+    if tweet.media_urls:
+        print(f"{prefix}Media: {len(tweet.media_urls)} file(s)")
+    stats = []
+    if tweet.likes:
+        stats.append(f"{tweet.likes} likes")
+    if tweet.retweets:
+        stats.append(f"{tweet.retweets} RT")
+    if tweet.views:
+        stats.append(f"{tweet.views} views")
+    if stats:
+        print(f"{prefix}{' | '.join(stats)}")
+    if tweet.quoted_tweet:
+        _print_quoted_tweet(tweet.quoted_tweet, indent + 2)
+
+
 def _handle_tweet(args):
     scraper = XScraper(ytdlp_cookies=args.cookies)
     try:
@@ -132,19 +183,7 @@ def _handle_tweet(args):
         sys.exit(1)
 
     if args.json:
-        out = {
-            "id": tweet.id,
-            "text": tweet.text,
-            "author": tweet.author,
-            "author_handle": tweet.author_handle,
-            "likes": tweet.likes,
-            "retweets": tweet.retweets,
-            "replies": tweet.replies,
-            "views": tweet.views,
-            "media_urls": tweet.media_urls,
-            "article_title": tweet.article_title,
-            "source_method": tweet.source_method,
-        }
+        out = _tweet_to_dict(tweet)
         print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
         print(f"@{tweet.author_handle} ({tweet.author})")
@@ -156,6 +195,8 @@ def _handle_tweet(args):
             print(f"\nMedia: {len(tweet.media_urls)} file(s)")
             for u in tweet.media_urls:
                 print(f"  {u}")
+        if tweet.quoted_tweet:
+            _print_quoted_tweet(tweet.quoted_tweet)
         print(f"\n{tweet.likes} likes | {tweet.retweets} RT | {tweet.views} views")
         print(f"(via {tweet.source_method})")
 
@@ -172,12 +213,7 @@ def _handle_thread(args):
     if args.json:
         tweets_out = []
         for t in thread.all_tweets:
-            tweets_out.append({
-                "id": t.id,
-                "text": t.text,
-                "author_handle": t.author_handle,
-                "likes": t.likes,
-            })
+            tweets_out.append(_tweet_to_dict(t))
         out = {
             "total_tweets": thread.total_tweets,
             "tweets": tweets_out,
@@ -191,6 +227,8 @@ def _handle_thread(args):
             print(t.text)
             if t.media_urls:
                 print(f"  Media: {len(t.media_urls)} file(s)")
+            if t.quoted_tweet:
+                _print_quoted_tweet(t.quoted_tweet)
 
 
 def _handle_profile(args):
