@@ -33,21 +33,38 @@ def _is_profile_url(url: str) -> bool:
 
 
 def main():
+    # Check if first arg is "search" subcommand
+    if len(sys.argv) > 1 and sys.argv[1] == "search":
+        _main_search()
+        return
+    _main_url()
+
+
+def _main_search():
+    parser = argparse.ArgumentParser(
+        prog="scraperx search",
+        description="Search tweets via DuckDuckGo + FxTwitter"
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "search"
+    parser.add_argument("query", nargs="+", help="Search query")
+    parser.add_argument("--limit", "-n", type=int, default=10, help="Max results (default: 10)")
+    parser.add_argument("--time", "-t", choices=["d", "w", "m", "y"], help="Time filter")
+    parser.add_argument("--json", action="store_true", help="Output JSON")
+    parser.add_argument("--fast", action="store_true", help="Skip enrichment")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+    _handle_search(args)
+
+
+def _main_url():
     parser = argparse.ArgumentParser(
         description="Scrape X/Twitter tweets, profiles, threads, or YouTube transcripts"
     )
-    subparsers = parser.add_subparsers(dest="command")
-
-    # search subcommand
-    search_parser = subparsers.add_parser("search", help="Search tweets via DuckDuckGo + FxTwitter")
-    search_parser.add_argument("query", nargs="+", help="Search query (supports from:user, quotes, etc.)")
-    search_parser.add_argument("--limit", "-n", type=int, default=10, help="Max results (default: 10)")
-    search_parser.add_argument("--time", "-t", choices=["d", "w", "m", "y"], help="Time filter: d=day, w=week, m=month")
-    search_parser.add_argument("--json", action="store_true", help="Output JSON")
-    search_parser.add_argument("--fast", action="store_true", help="Skip enrichment, return IDs only")
-    search_parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
-
-    # Default: URL-based scraping (backward compatible)
     parser.add_argument("url", nargs="?", help="Tweet URL, profile URL, or YouTube URL")
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
     parser.add_argument("--thread", action="store_true", help="Fetch full thread")
@@ -61,11 +78,6 @@ def main():
         level=logging.DEBUG if args.verbose else logging.WARNING,
         format="%(levelname)s: %(message)s",
     )
-
-    # Handle search subcommand
-    if args.command == "search":
-        _handle_search(args)
-        return
 
     if not args.url:
         parser.print_help()
