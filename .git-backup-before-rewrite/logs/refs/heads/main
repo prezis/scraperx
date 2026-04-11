@@ -1,0 +1,4 @@
+0000000000000000000000000000000000000000 9cf27baca671155bdc69ed17fde65e6d93e7728b palyslaf0s <palyslaf0s@palyslafos-ubuntu.(none)> 1775720418 +0100	clone: from https://github.com/prezis/scraperx.git
+9cf27baca671155bdc69ed17fde65e6d93e7728b 4040729c02d9d6595574562ddede8f0aab44c598 Przemyslaw Palyska <przemyslaw.palyska@gmail.com> 1775782402 +0100	commit: Add thread walk-down, impersonation detection, quote/article expansion
+4040729c02d9d6595574562ddede8f0aab44c598 4376f1993cdd30d7a09f1de8b4d141114cae5308 Przemyslaw Palyska <przemyslaw.palyska@gmail.com> 1775803195 +0100	commit: Fix CLI argparse: separate search subparser from URL positional arg
+4376f1993cdd30d7a09f1de8b4d141114cae5308 409c34cb39571409f8030dfbb6e89fe90a74fc39 Przemyslaw Palyska <przemyslaw.palyska@gmail.com> 1775804865 +0100	commit: Add TweetNotFoundError, improve error messages for all scraping methods

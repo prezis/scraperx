@@ -137,7 +137,7 @@ The chain ensures you always get at least the tweet text, even if third-party AP
 | `profile.py` | Profile data (bio, followers, verified). `get_profile("handle")` |
 | `thread.py` | Full thread reconstruction. `get_thread(url)` |
 | `search.py` | Tweet search via DuckDuckGo + FxTwitter. `search_tweets("query")` |
-| `youtube_scraper.py` | Video transcription (auto-captions or Whisper). `YouTubeScraper().get_transcript(url)` |
+| `youtube_scraper.py` | Video transcription (auto-captions → faster-whisper GPU → whisper CLI fallback). `YouTubeScraper().get_transcript(url)` |
 
 ### Data & Storage
 
@@ -208,7 +208,7 @@ Photos: appends `:large` suffix for full resolution from `pbs.twimg.com`.
 ## Testing
 
 ```bash
-# All tests (123 tests, ~1s, zero network calls)
+# All tests (180 tests, ~4s, zero network calls)
 pytest -v
 
 # Just tweet scraper
@@ -226,9 +226,13 @@ All tests are fully mocked — no network calls, no external dependencies needed
 - Python 3.10+
 - No pip packages needed for core functionality
 
+**Optional — GPU-accelerated transcription (recommended):**
+- `pip install faster-whisper` — 4x faster than OpenAI whisper, auto-detects CUDA/Metal GPU
+- Auto-detection: if GPU available → uses float16 on CUDA, int8 on Metal. No GPU → CPU fallback.
+
 **Optional system tools:**
 - `yt-dlp` — for yt-dlp fallback method and YouTube downloads
-- `whisper` — for YouTube audio transcription (fallback when no auto-captions)
+- `whisper` — for YouTube audio transcription (fallback when faster-whisper not installed)
 
 **Optional pip packages:**
 - `twscrape` — for Twitter account-based scraping (profiles, search, timelines)

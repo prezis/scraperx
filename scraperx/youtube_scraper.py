@@ -62,17 +62,72 @@ def parse_youtube_url(url: str) -> str:
     return m.group("id")
 
 
+def _detect_whisper_backend() -> str:
+    """Detect best available whisper backend.
+
+    Priority:
+    1. faster-whisper (GPU via CUDA/Metal, 4x faster than OpenAI whisper)
+    2. whisper CLI (OpenAI whisper, CPU or GPU depending on install)
+    3. None — no transcription available
+    """
+    try:
+        from faster_whisper import WhisperModel  # noqa: F401
+        return "faster-whisper"
+    except ImportError:
+        pass
+    try:
+        result = subprocess.run(["whisper", "--help"], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            return "whisper-cli"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return "none"
+
+
+def _detect_gpu_for_whisper() -> tuple[str, str]:
+    """Detect if GPU is available for whisper inference.
+
+    Returns: (device, compute_type) for faster-whisper.
+    """
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            free_mb = int(result.stdout.strip().split("\n")[0])
+            if free_mb >= 1000:  # Need ~1GB for whisper small, ~2.5GB for medium
+                return "cuda", "float16"
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        pass
+    # macOS Metal
+    import platform
+    if platform.system() == "Darwin":
+        return "auto", "int8"  # faster-whisper auto-detects Metal on macOS
+    return "cpu", "int8"
+
+
 class YouTubeScraper:
-    """YouTube video scraper with auto-captions + whisper fallback."""
+    """YouTube video scraper with auto-captions + whisper fallback.
+
+    Automatically detects the best transcription backend:
+    - faster-whisper + CUDA GPU → 4x faster, uses GPU VRAM
+    - faster-whisper + CPU → still faster than OpenAI whisper
+    - whisper CLI → fallback, works everywhere
+    """
 
     def __init__(self, *,
                  output_dir: str = DEFAULT_TRANSCRIPT_DIR,
                  whisper_model: str = 'base',
-                 language: str = 'en'):
+                 language: str = 'en',
+                 whisper_backend: Optional[str] = None):
         self.output_dir = output_dir
         self.whisper_model = whisper_model
         self.language = language
+        self.whisper_backend = whisper_backend or _detect_whisper_backend()
+        self._device, self._compute_type = _detect_gpu_for_whisper()
         os.makedirs(output_dir, exist_ok=True)
+        logger.info("Whisper backend: %s, device: %s", self.whisper_backend, self._device)
 
     def get_metadata(self, url: str) -> dict:
         """Fetch video metadata without downloading."""
@@ -223,7 +278,51 @@ class YouTubeScraper:
         return audio_path
 
     def _whisper_transcribe(self, audio_path: str) -> str:
-        """Transcribe audio using whisper."""
+        """Transcribe audio using the best available backend.
+
+        Backends (auto-detected at init):
+        - faster-whisper: Python library, GPU-accelerated (CUDA/Metal), 4x faster
+        - whisper-cli: OpenAI whisper CLI, universal fallback
+        """
+        if self.whisper_backend == "faster-whisper":
+            return self._transcribe_faster_whisper(audio_path)
+        elif self.whisper_backend == "whisper-cli":
+            return self._transcribe_whisper_cli(audio_path)
+        else:
+            raise RuntimeError(
+                "No whisper backend available. Install one:\n"
+                "  pip install faster-whisper  (recommended, GPU-accelerated)\n"
+                "  pip install openai-whisper  (fallback, CLI-based)"
+            )
+
+    def _transcribe_faster_whisper(self, audio_path: str) -> str:
+        """Transcribe with faster-whisper (GPU-accelerated if available)."""
+        from faster_whisper import WhisperModel
+
+        logger.info(
+            "Transcribing with faster-whisper model=%s device=%s compute=%s",
+            self.whisper_model, self._device, self._compute_type
+        )
+        model = WhisperModel(
+            self.whisper_model,
+            device=self._device,
+            compute_type=self._compute_type,
+        )
+        segments, info = model.transcribe(
+            audio_path,
+            language=self.language if self.language != 'auto' else None,
+            beam_size=3,
+        )
+        lines = []
+        for seg in segments:
+            lines.append(f"[{seg.start:.0f}s] {seg.text.strip()}")
+
+        del model  # free GPU memory
+        logger.info("Transcribed %.0fs audio, %d segments", info.duration, len(lines))
+        return "\n".join(lines)
+
+    def _transcribe_whisper_cli(self, audio_path: str) -> str:
+        """Transcribe with OpenAI whisper CLI (universal fallback)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             cmd = [
                 'whisper', audio_path,
@@ -232,19 +331,18 @@ class YouTubeScraper:
                 '--output_format', 'txt',
                 '-o', tmpdir,
             ]
-            logger.info("Transcribing with whisper model=%s", self.whisper_model)
+            logger.info("Transcribing with whisper CLI model=%s", self.whisper_model)
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
             if result.returncode != 0:
-                raise RuntimeError(f"Whisper failed: {result.stderr[:300]}")
+                raise RuntimeError(f"Whisper CLI failed: {result.stderr[:300]}")
 
-            # Read transcript
             for f in os.listdir(tmpdir):
                 if f.endswith('.txt'):
                     txt_path = os.path.join(tmpdir, f)
                     with open(txt_path, 'r', encoding='utf-8') as fh:
                         return fh.read().strip()
 
-        raise RuntimeError("Whisper produced no output file")
+        raise RuntimeError("Whisper CLI produced no output file")
 
     def _save_transcript(self, result: YouTubeResult):
         """Save transcript to disk."""
