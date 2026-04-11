@@ -13,3 +13,4 @@ data/
 .env
 *.mp3
 *.wav
+.git-backup-before-rewrite/

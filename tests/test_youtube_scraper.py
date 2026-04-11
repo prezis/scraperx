@@ -170,3 +170,40 @@ class TestYouTubeResult:
         assert r.transcript == ""
         assert r.transcript_method == ""
         assert r.audio_path is None
+
+
+# --- GPU Detection Tests ---
+
+class TestWhisperBackendDetection:
+    """Test whisper backend auto-detection."""
+
+    def test_detect_faster_whisper_when_installed(self):
+        """faster-whisper is installed on this machine."""
+        from scraperx.youtube_scraper import _detect_whisper_backend
+        result = _detect_whisper_backend()
+        # Should detect faster-whisper since it's installed
+        assert result in ("faster-whisper", "whisper-cli", "none")
+
+    def test_detect_gpu_returns_tuple(self):
+        from scraperx.youtube_scraper import _detect_gpu_for_whisper
+        device, compute_type = _detect_gpu_for_whisper()
+        assert device in ("cuda", "auto", "cpu")
+        assert compute_type in ("float16", "int8")
+
+    def test_scraper_init_sets_backend(self):
+        from scraperx.youtube_scraper import YouTubeScraper
+        scraper = YouTubeScraper()
+        assert scraper.whisper_backend in ("faster-whisper", "whisper-cli", "none")
+        assert scraper._device in ("cuda", "auto", "cpu")
+
+    def test_scraper_explicit_backend(self):
+        from scraperx.youtube_scraper import YouTubeScraper
+        scraper = YouTubeScraper(whisper_backend="whisper-cli")
+        assert scraper.whisper_backend == "whisper-cli"
+
+    def test_scraper_no_backend_raises_on_transcribe(self, tmp_path):
+        from scraperx.youtube_scraper import YouTubeScraper
+        scraper = YouTubeScraper(whisper_backend="none")
+        import pytest
+        with pytest.raises(RuntimeError, match="No whisper backend"):
+            scraper._whisper_transcribe(str(tmp_path / "fake.mp3"))
