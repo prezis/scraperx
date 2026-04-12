@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for ScraperX — X/Twitter + YouTube scraper.
+"""CLI for ScraperX — X/Twitter + YouTube scraper + blockchain explorer.
 
 Usage:
     python -m scraperx https://x.com/user/status/123456
@@ -7,6 +7,8 @@ Usage:
     python -m scraperx https://x.com/user/status/123456 --thread
     python -m scraperx https://x.com/elonmusk              # profile
     python -m scraperx https://youtube.com/watch?v=ID
+    python -m scraperx basescan 0xADDRESS                  # Basescan address
+    python -m scraperx dexscreener 0xADDRESS               # DexScreener token
     scraperx https://x.com/user/status/123456               # if pip installed
 """
 import argparse
@@ -33,10 +35,18 @@ def _is_profile_url(url: str) -> bool:
 
 
 def main():
-    # Check if first arg is "search" subcommand
-    if len(sys.argv) > 1 and sys.argv[1] == "search":
-        _main_search()
-        return
+    # Check if first arg is a subcommand
+    if len(sys.argv) > 1:
+        subcmd = sys.argv[1]
+        if subcmd == "search":
+            _main_search()
+            return
+        if subcmd == "basescan":
+            _main_basescan()
+            return
+        if subcmd == "dexscreener":
+            _main_dexscreener()
+            return
     _main_url()
 
 
