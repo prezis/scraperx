@@ -2,7 +2,7 @@
 from unittest.mock import patch, MagicMock, PropertyMock
 import pytest
 
-from scraperx.blockchain import (
+from scraperx.screenshot import (
     scrape_basescan_address,
     scrape_dexscreener_token,
     BasescanAddress,
@@ -58,12 +58,12 @@ class TestAddressRegex:
 # --- Playwright not available ---
 
 class TestPlaywrightNotAvailable:
-    @patch("scraperx.blockchain._get_playwright", side_effect=PlaywrightNotAvailable("not installed"))
+    @patch("scraperx.screenshot._get_playwright", side_effect=PlaywrightNotAvailable("not installed"))
     def test_basescan_raises(self, mock_pw):
         with pytest.raises(PlaywrightNotAvailable, match="not installed"):
             scrape_basescan_address("0x1234567890abcdef1234567890abcdef12345678")
 
-    @patch("scraperx.blockchain._get_playwright", side_effect=PlaywrightNotAvailable("not installed"))
+    @patch("scraperx.screenshot._get_playwright", side_effect=PlaywrightNotAvailable("not installed"))
     def test_dexscreener_raises(self, mock_pw):
         with pytest.raises(PlaywrightNotAvailable, match="not installed"):
             scrape_dexscreener_token("0x1234567890abcdef1234567890abcdef12345678")
@@ -282,8 +282,8 @@ def _mock_playwright_context(parse_fn):
 
 
 class TestScrapeBasescanIntegration:
-    @patch("scraperx.blockchain._parse_basescan_dom")
-    @patch("scraperx.blockchain._get_playwright")
+    @patch("scraperx.screenshot._parse_basescan_dom")
+    @patch("scraperx.screenshot._get_playwright")
     def test_full_scrape_flow(self, mock_get_pw, mock_parse):
         """Test full scrape_basescan_address with mocked Playwright."""
         mock_sync_pw, mock_page = _mock_playwright_context(mock_parse)
@@ -308,8 +308,8 @@ class TestScrapeBasescanIntegration:
 
 
 class TestScrapeDexscreenerIntegration:
-    @patch("scraperx.blockchain._parse_dexscreener_dom")
-    @patch("scraperx.blockchain._get_playwright")
+    @patch("scraperx.screenshot._parse_dexscreener_dom")
+    @patch("scraperx.screenshot._get_playwright")
     def test_full_scrape_flow(self, mock_get_pw, mock_parse):
         """Test full scrape_dexscreener_token with mocked Playwright."""
         mock_sync_pw, mock_page = _mock_playwright_context(mock_parse)

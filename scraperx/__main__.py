@@ -47,6 +47,9 @@ def main():
         if subcmd == "dexscreener":
             _main_dexscreener()
             return
+        if subcmd == "screenshot":
+            _main_screenshot()
+            return
     _main_url()
 
 
@@ -350,7 +353,7 @@ def _handle_search(args):
 
 
 def _main_basescan():
-    from .blockchain import scrape_basescan_address, PlaywrightNotAvailable
+    from .screenshot import scrape_basescan_address, PlaywrightNotAvailable
 
     parser = argparse.ArgumentParser(
         prog="scraperx basescan",
@@ -406,7 +409,7 @@ def _main_basescan():
 
 
 def _main_dexscreener():
-    from .blockchain import scrape_dexscreener_token, PlaywrightNotAvailable
+    from .screenshot import scrape_dexscreener_token, PlaywrightNotAvailable
 
     parser = argparse.ArgumentParser(
         prog="scraperx dexscreener",
@@ -466,6 +469,45 @@ def _main_dexscreener():
         if result.pair_count:
             print(f"Pairs: {result.pair_count}")
         print(f"(via {result.source_method})")
+
+
+def _main_screenshot():
+    from .screenshot import screenshot_url, PlaywrightNotAvailable
+
+    parser = argparse.ArgumentParser(
+        prog="scraperx screenshot",
+        description="Take a headless background screenshot of any URL",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "screenshot"
+    parser.add_argument("url", help="URL to screenshot")
+    parser.add_argument("-o", "--output", default="screenshot.png", help="Output path (default: screenshot.png)")
+    parser.add_argument("--full-page", action="store_true", help="Capture full scrollable page")
+    parser.add_argument("--wait", default=None, help="CSS selector to wait for before screenshot")
+    parser.add_argument("--timeout", type=int, default=30000, help="Timeout in ms (default: 30000)")
+    parser.add_argument("--width", type=int, default=1280, help="Viewport width")
+    parser.add_argument("--height", type=int, default=900, help="Viewport height")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
+
+    try:
+        path = screenshot_url(
+            args.url,
+            output_path=args.output,
+            full_page=args.full_page,
+            wait_selector=args.wait,
+            timeout=args.timeout,
+            viewport=(args.width, args.height),
+        )
+        print(f"Screenshot saved: {path}")
+    except PlaywrightNotAvailable as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

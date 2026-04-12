@@ -1,13 +1,14 @@
 """
-Blockchain Explorer Scraper — headless Playwright scraping for Basescan & DexScreener.
+Headless Background Screenshot — take screenshots of any URL without showing a browser.
 
-Parses DOM snapshots from blockchain explorers to extract on-chain data
-without requiring any API keys.
+Runs Chromium in headless mode: no visible window, doesn't steal focus or screen.
+Useful for visual verification, monitoring, testing, scraping page content.
 
-Usage:
-    from scraperx.blockchain import scrape_basescan_address, scrape_dexscreener_token
-    info = scrape_basescan_address("0x1234...")
-    token = scrape_dexscreener_token("0x1234...")
+Core feature:
+    from scraperx.screenshot import screenshot_url
+    path = screenshot_url("https://example.com", output_path="shot.png")
+
+Also includes domain-specific scrapers (Basescan, DexScreener) built on top.
 
 Requires: playwright (optional dependency)
     pip install playwright && playwright install chromium
@@ -68,6 +69,59 @@ def _validate_address(address: str) -> str:
     return address
 
 
+def screenshot_url(
+    url: str,
+    *,
+    output_path: str = "screenshot.png",
+    full_page: bool = False,
+    wait_selector: Optional[str] = None,
+    timeout: int = 30_000,
+    viewport: tuple[int, int] = (1280, 900),
+) -> str:
+    """Take a headless background screenshot of any URL.
+
+    Runs Chromium in headless mode — no visible browser window,
+    doesn't steal focus or take over the screen.
+
+    Args:
+        url: The URL to screenshot.
+        output_path: Where to save the PNG/JPEG.
+        full_page: Capture full scrollable page (not just viewport).
+        wait_selector: CSS selector to wait for before screenshot.
+        timeout: Page load timeout in ms.
+        viewport: Browser viewport size (width, height).
+
+    Returns:
+        The output_path where the screenshot was saved.
+    """
+    sync_playwright = _get_playwright()
+
+    with sync_playwright() as pw:
+        browser = _launch_browser(pw)
+        try:
+            page = browser.new_page(
+                user_agent=(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": viewport[0], "height": viewport[1]},
+            )
+            page.set_default_timeout(timeout)
+            page.goto(url, wait_until="domcontentloaded")
+
+            if wait_selector:
+                page.wait_for_selector(wait_selector, timeout=timeout)
+            else:
+                # Default: wait for network idle
+                page.wait_for_load_state("networkidle")
+
+            page.screenshot(path=output_path, full_page=full_page)
+            logger.info("Screenshot saved: %s (%s)", output_path, url)
+            return output_path
+        finally:
+            browser.close()
+
+
 def _get_playwright():
     """Import and return playwright sync API. Raises PlaywrightNotAvailable on failure."""
     try:
@@ -98,7 +152,9 @@ def _parse_number_text(text: str) -> str:
     return text.strip().replace("\xa0", " ")
 
 
-def scrape_basescan_address(address: str, *, timeout: int = 30_000) -> BasescanAddress:
+def scrape_basescan_address(
+    address: str, *, timeout: int = 30_000, screenshot_path: Optional[str] = None,
+) -> BasescanAddress:
     """Scrape Basescan for address information using headless Playwright.
 
     Args:
@@ -133,6 +189,10 @@ def scrape_basescan_address(address: str, *, timeout: int = 30_000) -> BasescanA
 
             # Wait for the main content to render
             page.wait_for_selector("#ContentPlaceHolder1_divSummary", timeout=timeout)
+
+            if screenshot_path:
+                page.screenshot(path=screenshot_path, full_page=False)
+                logger.info("Basescan screenshot saved: %s", screenshot_path)
 
             return _parse_basescan_dom(page, address)
         finally:

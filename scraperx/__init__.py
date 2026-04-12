@@ -5,11 +5,8 @@ from .thread import Thread, get_thread
 from .search import search_tweets
 from .token_extractor import TokenMention, extract_token_mentions
 from .social_db import SocialDB
-from .blockchain import (
-    scrape_basescan_address,
-    scrape_dexscreener_token,
-    BasescanAddress,
-    DexScreenerToken,
+from .screenshot import (
+    screenshot_url,
     PlaywrightNotAvailable,
 )
 
@@ -22,7 +19,6 @@ __all__ = [
     "search_tweets",
     "TokenMention", "extract_token_mentions",
     "SocialDB",
-    "scrape_basescan_address", "scrape_dexscreener_token",
-    "BasescanAddress", "DexScreenerToken",
+    "screenshot_url",
     "PlaywrightNotAvailable",
 ]
