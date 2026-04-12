@@ -349,5 +349,124 @@ def _handle_search(args):
             print()
 
 
+def _main_basescan():
+    from .blockchain import scrape_basescan_address, PlaywrightNotAvailable
+
+    parser = argparse.ArgumentParser(
+        prog="scraperx basescan",
+        description="Scrape Basescan address info via headless browser"
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "basescan"
+    parser.add_argument("address", help="Ethereum address (0x...)")
+    parser.add_argument("--json", action="store_true", help="Output JSON")
+    parser.add_argument("--timeout", type=int, default=30000, help="Timeout ms (default: 30000)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+
+    try:
+        result = scrape_basescan_address(args.address, timeout=args.timeout)
+    except (PlaywrightNotAvailable, ValueError, RuntimeError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        out = {
+            "address": result.address,
+            "is_contract": result.is_contract,
+            "eth_balance": result.eth_balance,
+            "eth_value_usd": result.eth_value_usd,
+            "token_holdings_count": result.token_holdings_count,
+            "transaction_count": result.transaction_count,
+            "contract_creator": result.contract_creator,
+            "contract_name": result.contract_name,
+            "source_method": result.source_method,
+        }
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+    else:
+        kind = "Contract" if result.is_contract else "EOA (Externally Owned Account)"
+        print(f"Address: {result.address}")
+        print(f"Type: {kind}")
+        if result.contract_name:
+            print(f"Contract Name: {result.contract_name}")
+        if result.eth_balance:
+            usd_part = f" (${result.eth_value_usd})" if result.eth_value_usd else ""
+            print(f"ETH Balance: {result.eth_balance} ETH{usd_part}")
+        if result.transaction_count:
+            print(f"Transactions: {result.transaction_count:,}")
+        if result.token_holdings_count:
+            print(f"Token Holdings: {result.token_holdings_count}")
+        if result.contract_creator:
+            print(f"Creator: {result.contract_creator}")
+        print(f"(via {result.source_method})")
+
+
+def _main_dexscreener():
+    from .blockchain import scrape_dexscreener_token, PlaywrightNotAvailable
+
+    parser = argparse.ArgumentParser(
+        prog="scraperx dexscreener",
+        description="Scrape DexScreener token info on Base chain via headless browser"
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "dexscreener"
+    parser.add_argument("address", help="Token contract address (0x...)")
+    parser.add_argument("--json", action="store_true", help="Output JSON")
+    parser.add_argument("--timeout", type=int, default=30000, help="Timeout ms (default: 30000)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+
+    try:
+        result = scrape_dexscreener_token(args.address, timeout=args.timeout)
+    except (PlaywrightNotAvailable, ValueError, RuntimeError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        out = {
+            "address": result.address,
+            "name": result.name,
+            "symbol": result.symbol,
+            "price": result.price,
+            "price_change_24h": result.price_change_24h,
+            "liquidity": result.liquidity,
+            "volume_24h": result.volume_24h,
+            "market_cap": result.market_cap,
+            "fdv": result.fdv,
+            "pair_count": result.pair_count,
+            "source_method": result.source_method,
+        }
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+    else:
+        title = result.name
+        if result.symbol:
+            title += f" ({result.symbol})"
+        if title:
+            print(title)
+        print(f"Address: {result.address}")
+        if result.price:
+            change = f" ({result.price_change_24h})" if result.price_change_24h else ""
+            print(f"Price: {result.price}{change}")
+        if result.liquidity:
+            print(f"Liquidity: ${result.liquidity}")
+        if result.volume_24h:
+            print(f"Volume 24h: ${result.volume_24h}")
+        if result.market_cap:
+            print(f"Market Cap: ${result.market_cap}")
+        if result.fdv:
+            print(f"FDV: ${result.fdv}")
+        if result.pair_count:
+            print(f"Pairs: {result.pair_count}")
+        print(f"(via {result.source_method})")
+
+
 if __name__ == "__main__":
     main()
