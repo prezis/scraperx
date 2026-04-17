@@ -1,0 +1,45 @@
+line-length = 120
+target-version = "py310"
+
+exclude = [
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    "*.egg-info",
+    "__pycache__",
+]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line too long (handled by line-length)
+    "B008",   # function calls in argument defaults (common, not a bug)
+    "SIM108", # ternary — sometimes explicit if/else reads better
+]
+
+[lint.per-file-ignores]
+"tests/*.py" = [
+    "S101",    # assert usage (fine in tests)
+    "ARG001",  # unused function argument (pytest fixtures)
+    "ARG002",  # unused method argument
+    "PLR2004", # magic values fine in tests
+]
+"scraperx/__init__.py" = [
+    "F401",    # re-exports are intentional
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

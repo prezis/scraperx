@@ -326,6 +326,107 @@ with SocialDB() as db:
 
 ---
 
+## Demo
+
+What a session looks like.
+
+### Scrape a tweet with full 1.3.0 context
+
+```text
+$ scraperx https://x.com/user/status/1234567890 --json
+{
+  "id": "1234567890",
+  "author_handle": "user",
+  "text": "Thread 🧵 on why on-chain auth matters...",
+  "is_reply": false,
+  "is_quote": false,
+  "conversation_id": "1234567890",
+  "created_at": "Thu Apr 17 09:12:00 +0000 2026",
+  "author_verified": true,
+  "author_verified_type": "business",
+  "author_followers": 42000,
+  "author_joined": "Wed Jan 03 12:00:00 +0000 2018",
+  ...
+}
+```
+
+### Reconstruct a thread and verify it
+
+```text
+$ scraperx https://x.com/user/status/1234567890 --thread
+Thread (5 tweets by @user)
+  [1/5] Thread 🧵 on why on-chain auth matters...
+  [2/5] First: identity claims live in the address, not the handle.
+  [3/5] Second: handles are mutable. Numeric IDs are not.
+  [4/5] Third: this is what ThreadAuthenticity actually checks.
+  [5/5] Source code: https://github.com/prezis/scraperx
+
+Authenticity: OK
+  ✓ same_conversation (all share conversation_id=1234567890)
+  ✓ single_author    (all by author_id=987654321)
+  ✓ chronological    (timestamps non-decreasing)
+  ✓ no_interpolation (every reply resolves to a parent in the thread)
+```
+
+### Find embedded videos on a random webpage
+
+```text
+$ scraperx discover https://some-company.example.com/product-tour
+Found 2 video(s):
+  youtube  id=dQw4w9WgXcQ  https://www.youtube.com/watch?v=dQw4w9WgXcQ
+  vimeo    id=76979871     https://vimeo.com/76979871
+```
+
+### Transcribe a Vimeo video (auto-captions or whisper)
+
+```text
+$ scraperx https://vimeo.com/76979871
+Title: Sintel — The Durian Open Movie Project
+Author: Blender Foundation
+Duration: 888s
+Method:   text_tracks   (creator-uploaded VTT used)
+
+Transcript:
+SINTEL: Wait! Hey wait... Please don't go...
+...
+```
+
+---
+
+## Comparison with alternatives
+
+scraperx sits in a different niche than high-volume scrapers like `snscrape` or `yt-dlp`. It focuses on **per-URL enrichment** — authenticity signals, impersonation checks, and cross-provider video discovery — with a stdlib-only core and no API keys. Use the table below to pick the right tool for your job.
+
+| Feature | scraperx | snscrape | tweepy | yt-dlp | twikit |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Requires API keys | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Requires account credentials | ❌ | ❌ | ✅ | ❌ | ✅ |
+| X/Twitter tweet scraping | ✅ | ⚠️ (broken post-API changes) | ✅ | ❌ | ✅ |
+| X/Twitter thread reconstruction | ✅ | ❌ | ⚠️ (manual) | ❌ | ⚠️ (manual) |
+| X/Twitter search | ✅ | ⚠️ | ✅ | ❌ | ✅ |
+| X/Twitter profile | ✅ | ✅ | ✅ | ❌ | ✅ |
+| YouTube transcription | ✅ | ❌ | ❌ | ⚠️ (subs only, no ASR) | ❌ |
+| Vimeo transcription | ✅ | ❌ | ❌ | ⚠️ (subs if available) | ❌ |
+| Generic video discovery (page → embeds) | ✅ | ❌ | ❌ | ⚠️ (direct URL only) | ❌ |
+| Thread authenticity verification | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Impersonation detection (avatar pHash) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Scam content detection | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Python 3.10+ | ✅ | ✅ (3.8+) | ✅ | ✅ | ✅ |
+| Active maintenance (2025-2026) | ✅ | ❌ (last commit 2023-11) | ✅ | ✅ | ✅ |
+| Stars (Apr 2026) | 1 | 5.3k | 11.1k | 157k | 4.3k |
+| License | MIT | GPL-3.0 | MIT | Unlicense | MIT |
+
+**When to choose what:**
+- **scraperx** — verify a specific URL or thread (authenticity, impersonation, embed discovery). Unique: perceptual-hash impersonation + thread authenticity scoring + cross-provider video discovery in one import.
+- **snscrape** — historical archives. Note: effectively unmaintained since Nov 2023; Twitter support broke post-API changes.
+- **tweepy** — when you already have official X API keys and need the full documented endpoint surface.
+- **yt-dlp** — high-volume video downloading. Reference tool; scraperx uses it internally for audio extraction.
+- **twikit** — logged-in X scraping (DMs, posting). scraperx deliberately avoids account-bound endpoints.
+
+**Honest caveats:** scraperx is new and small (low single-digit stars as of April 2026) compared to `yt-dlp` (157k) or `tweepy` (11k). For Instagram, use `instaloader`. For high-volume X scraping with an account, use `twikit` or `twscrape`. scraperx isn't a replacement for those — it's the glue layer for authenticity + discovery on top of them.
+
+---
+
 ## CLI reference
 
 ```
