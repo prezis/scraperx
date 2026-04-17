@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scraperx"
-version = "1.0.0"
+version = "1.3.0"
 description = "Multi-method X/Twitter scraper + YouTube transcriber. No API keys required."
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,6 +30,7 @@ classifiers = [
 twscrape = ["twscrape>=0.12"]
 whisper = ["openai-whisper>=20231117"]
 blockchain = ["playwright>=1.40"]
+vision = ["imagehash>=4.3", "Pillow>=10.0"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]

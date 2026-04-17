@@ -69,6 +69,23 @@ CREATE TABLE IF NOT EXISTS search_cache (
     searched_at REAL NOT NULL,
     ttl_seconds INTEGER DEFAULT 3600
 );
+
+-- Defense in depth: AvatarMatcher maintains its own connection, but any
+-- consumer opening the shared DB sees these tables too.
+CREATE TABLE IF NOT EXISTS avatar_hash (
+    url TEXT PRIMARY KEY,
+    phash TEXT,
+    content_sha256 TEXT,
+    fetched_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS verified_avatars (
+    handle TEXT NOT NULL,
+    phash TEXT NOT NULL,
+    url TEXT NOT NULL,
+    recorded_at INTEGER NOT NULL,
+    PRIMARY KEY (handle, recorded_at)
+);
 """
 
 

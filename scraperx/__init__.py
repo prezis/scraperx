@@ -10,8 +10,9 @@ from .screenshot import (
     PlaywrightNotAvailable,
 )
 from scraperx.authenticity import ThreadAuthenticity, check_thread_authenticity
+from scraperx.avatar_matcher import AvatarMatcher, VerifiedAvatarRegistry
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 __all__ = [
     "XScraper", "Tweet", "TweetNotFoundError",
@@ -23,4 +24,5 @@ __all__ = [
     "screenshot_url",
     "PlaywrightNotAvailable",
     "ThreadAuthenticity", "check_thread_authenticity",
+    "AvatarMatcher", "VerifiedAvatarRegistry",
 ]

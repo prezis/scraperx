@@ -13,6 +13,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from scraperx.avatar_matcher import AvatarMatcher
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +223,7 @@ def check_impersonation(
     real_author_name: str,
     real_author_avatar: str,
     confidence_threshold: float = 0.6,
+    avatar_matcher: Optional["AvatarMatcher"] = None,
 ) -> ImpersonationCheck:
     """
     Check whether a reply tweet is from an impersonator of the real author.
@@ -232,6 +237,9 @@ def check_impersonation(
         real_author_name: Display name of the real/original thread author.
         real_author_avatar: Avatar URL of the real/original thread author.
         confidence_threshold: Minimum confidence to flag as suspect.
+        avatar_matcher: Optional AvatarMatcher for pHash-based avatar compare.
+            When None (default), uses legacy URL-string comparison via
+            ``_avatar_urls_match()`` (preserves back-compat).
 
     Returns:
         ImpersonationCheck with detection results.
@@ -269,7 +277,14 @@ def check_impersonation(
         identity_scores.append(n_sim * 0.8)  # name alone is weaker signal
 
     # --- Avatar match ---
-    avatar = _avatar_urls_match(tweet_author_avatar, real_author_avatar)
+    if avatar_matcher is not None:
+        try:
+            avatar = avatar_matcher.is_same(tweet_author_avatar, real_author_avatar)
+        except Exception:
+            # Any matcher failure falls back to URL-string compare
+            avatar = _avatar_urls_match(tweet_author_avatar, real_author_avatar)
+    else:
+        avatar = _avatar_urls_match(tweet_author_avatar, real_author_avatar)
     if avatar:
         reasons.append("avatar URL matches real author")
         identity_scores.append(0.85)
