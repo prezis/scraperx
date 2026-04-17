@@ -134,7 +134,33 @@ def _select_text_track(raw_cfg: dict, preferred_lang: str = "en") -> dict | None
     return None
 
 
+_VTT_HOST_ALLOWLIST = {
+    # Vimeo serves text_tracks VTTs from these hosts (observed in production configs)
+    "vimeo.com",
+    "www.vimeo.com",
+    "player.vimeo.com",
+    "f.vimeocdn.com",
+    "i.vimeocdn.com",
+    "captions.vimeocdn.com",
+}
+
+
+def _is_vtt_host_allowed(track_url: str) -> bool:
+    """SSRF guard — track URLs come from untrusted player-config JSON."""
+    try:
+        host = urlparse(track_url).hostname or ""
+        return host in _VTT_HOST_ALLOWLIST
+    except Exception:
+        return False
+
+
 def _download_vtt(track_url: str, timeout: int = 15, referer: str | None = None) -> str:
+    # SSRF protection: track["url"] comes from player-config JSON (untrusted).
+    # Reject URLs whose host isn't in the Vimeo VTT allowlist.
+    if not _is_vtt_host_allowed(track_url):
+        raise ValueError(f"VTT host not in allowlist: {urlparse(track_url).hostname}")
+    if urlparse(track_url).scheme not in {"http", "https"}:
+        raise ValueError(f"VTT scheme not allowed: {urlparse(track_url).scheme}")
     return _http_get(track_url, timeout=timeout, referer=referer).decode("utf-8", errors="replace")
 
 
@@ -303,10 +329,10 @@ class VimeoScraper:
             if track and track.get("url"):
                 try:
                     vtt_content = _download_vtt(track["url"], referer=referer)
-                    # Import _parse_vtt lazily to avoid circular imports
-                    from scraperx.youtube_scraper import _parse_vtt
+                    # Use shared pure function (fixes prior crash — was calling instance method)
+                    from scraperx._transcript_common import parse_vtt_content
 
-                    transcript_text = _parse_vtt(vtt_content)
+                    transcript_text = parse_vtt_content(vtt_content)
                     if transcript_text.strip():
                         result.transcript = transcript_text
                         result.transcript_method = "text_tracks"
@@ -323,21 +349,24 @@ class VimeoScraper:
                     f"Vimeo transcript failed for {video_id}: yt-dlp could not download audio "
                     f"(embed-domain-locked? pass referer=)"
                 )
-            try:
-                from scraperx.youtube_scraper import (
-                    _detect_whisper_backend,
-                    _transcribe_faster_whisper,
-                    _transcribe_whisper_cli,
-                )
-            except ImportError as e:
-                raise RuntimeError(f"youtube_scraper whisper helpers unavailable: {e}") from e
+            # Use shared transcription helpers (fixes prior "faster" vs "faster-whisper"
+            # string mismatch that made faster-whisper GPU path dead code).
+            from scraperx._transcript_common import (
+                detect_whisper_backend,
+                transcribe_faster_whisper,
+                transcribe_whisper_cli,
+            )
 
-            backend = _detect_whisper_backend()
-            if backend == "faster":
-                result.transcript = _transcribe_faster_whisper(audio_path)
+            backend = detect_whisper_backend()
+            if backend == "faster-whisper":
+                result.transcript = transcribe_faster_whisper(audio_path)
                 result.transcript_method = "whisper_faster"
-            else:
-                result.transcript = _transcribe_whisper_cli(audio_path)
+            elif backend == "whisper-cli":
+                result.transcript = transcribe_whisper_cli(audio_path)
                 result.transcript_method = "whisper_cli"
+            else:
+                raise RuntimeError(
+                    f"Vimeo {video_id}: no whisper backend available. Install: pip install scraperx[whisper]"
+                )
 
         return result

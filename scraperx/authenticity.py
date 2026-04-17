@@ -181,15 +181,15 @@ def check_thread_authenticity(thread: Thread) -> ThreadAuthenticity:
         result.reasons.append("root tweet appears deleted (conversation_id set but content missing)")
 
     # --- Final verdict ---
-    # Strict: ALL 4 properties must pass. Branches + root_deleted are advisory flags.
-    # If missing_fields forced a property to False purely from data-gap, we mention it
-    # but still require the property to be "not falsified".
+    # Strict: ALL 4 FORMAL properties must pass.
+    # has_branches + root_deleted are ADVISORY flags — documented as such in
+    # the class docstring. They do NOT affect is_authentic. Callers who care
+    # about branching or deleted roots can read those flags directly.
     result.is_authentic = (
         result.same_conversation
         and result.single_author
         and result.chronological
         and result.no_interpolation
-        and not result.root_deleted
     )
 
     return result
