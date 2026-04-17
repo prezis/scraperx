@@ -20,10 +20,11 @@ import hashlib
 import logging
 import os
 import sqlite3
+import threading
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,10 @@ try:
 
     import imagehash
     from PIL import Image
+
+    # Decompression-bomb guard. Default Pillow limit ~178 MP is still large
+    # enough to OOM. Clamp to 20 MP — generous for any avatar.
+    Image.MAX_IMAGE_PIXELS = 20_000_000
 
     IMAGEHASH_AVAILABLE = True
 except ImportError:
@@ -82,14 +87,33 @@ def _url_is_allowed(url: str) -> bool:
         return False
 
 
+class _StrictRedirectHandler(HTTPRedirectHandler):
+    """Re-validates redirect targets against the avatar allowlist.
+
+    Default urllib follows up to 10 redirects, checking the allowlist only on
+    the initial URL. Attacker who controls a redirecting URL (or injects a
+    Location header) can bypass SSRF protection by redirecting to internal IPs
+    (169.254.169.254 AWS IMDS, 10.x.x.x, localhost). This handler enforces
+    the allowlist on every hop.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002
+        if not _url_is_allowed(newurl):
+            raise URLError(f"redirect to non-allowlisted host blocked: {urlparse(newurl).hostname}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_STRICT_OPENER = build_opener(_StrictRedirectHandler())
+
+
 def _fetch_image_bytes(url: str, timeout: int = 10) -> bytes | None:
-    """SSRF-safe fetch: allowlisted host, 2MB cap, image/* content-type check."""
+    """SSRF-safe fetch: allowlisted host (every hop), 2MB cap, image/* content-type check."""
     if not _url_is_allowed(url):
-        logger.debug("avatar fetch blocked: host not in allowlist: %s", url)
+        logger.warning("avatar fetch blocked: host not in allowlist: %s", url)
         return None
     try:
         req = Request(url, headers={"User-Agent": "ScraperX-AvatarMatcher/1.0"})
-        with urlopen(req, timeout=timeout) as resp:
+        with _STRICT_OPENER.open(req, timeout=timeout) as resp:
             ct = resp.headers.get("Content-Type", "")
             if not ct.startswith("image/"):
                 logger.debug("avatar fetch blocked: non-image content-type %s", ct)
@@ -105,7 +129,11 @@ def _fetch_image_bytes(url: str, timeout: int = 10) -> bytes | None:
 
 
 def _compute_phash(image_bytes: bytes) -> str | None:
-    """Returns 16-char hex string (8x8 pHash = 64 bits) or None if failed."""
+    """Returns 16-char hex string (8x8 pHash = 64 bits) or None if failed.
+
+    Guards against decompression bombs — the byte cap (2MB) does not bound
+    decoded pixel count; Pillow MAX_IMAGE_PIXELS is set at module init.
+    """
     if not IMAGEHASH_AVAILABLE:
         return None
     try:
@@ -113,6 +141,9 @@ def _compute_phash(image_bytes: bytes) -> str | None:
         # Use explicit pHash; 8x8 hash_size yields 64-bit hash
         h = imagehash.phash(img, hash_size=8)
         return str(h)  # 16-char hex
+    except Image.DecompressionBombError as e:
+        logger.warning("avatar phash blocked: decompression bomb (%s)", e)
+        return None
     except Exception as e:
         logger.debug("phash computation failed: %s", e)
         return None
@@ -143,16 +174,37 @@ class AvatarMatcher:
 
     def __init__(self, db_path: str | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path)
-        self._conn.row_factory = sqlite3.Row
-        _init_schema(self._conn)
+        # 0o700 — DB contains avatar URLs + hashes for known-verified handles;
+        # not a secret but no reason to expose to other users on the machine.
+        os.makedirs(os.path.dirname(self.db_path), mode=0o700, exist_ok=True)
+        self._lock = threading.Lock()
+        self._conn: sqlite3.Connection | None = None
+        try:
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            # WAL so AvatarMatcher + VerifiedAvatarRegistry can share the same db file
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            _init_schema(self._conn)
+        except Exception:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
+            raise
+
+    def __enter__(self) -> "AvatarMatcher":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ARG002
+        self.close()
 
     def close(self) -> None:
-        try:
-            self._conn.close()
-        except Exception:
-            pass
+        with self._lock:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
 
     def fetch_and_hash(self, url: str) -> str | None:
         """Returns cached or freshly-computed phash (or content SHA256 fallback)."""

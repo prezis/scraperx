@@ -111,10 +111,34 @@ class VideoRef:
         return hash((self.provider, self.id))
 
 
+def _is_safe_page_url(url: str) -> bool:
+    """Reject SSRF vectors: file://, private IPs, loopback, link-local."""
+    import ipaddress
+
+    p = urlparse(url)
+    if p.scheme not in {"http", "https"}:
+        return False
+    host = p.hostname or ""
+    if not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            return False
+    except ValueError:
+        low = host.lower()
+        if low in {"localhost", "metadata.google.internal"} or low.endswith(".internal"):
+            return False
+    return True
+
+
 def _fetch_html(url: str, timeout: int = 15) -> str:
+    if not _is_safe_page_url(url):
+        raise ValueError(f"page_url rejected by SSRF guard: scheme or host is private/loopback/reserved: {url}")
     req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,*/*;q=0.8"})
     with urlopen(req, timeout=timeout) as resp:
-        body = resp.read()
+        # 10MB cap — bounds ReDoS risk on JSON-LD regex + general resource exhaustion
+        body = resp.read(10 * 1024 * 1024)
         ct = resp.headers.get("Content-Type", "")
         encoding = "utf-8"
         if "charset=" in ct:
