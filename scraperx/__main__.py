@@ -57,6 +57,10 @@ def main():
         if subcmd == "discover":
             _main_discover()
             return
+        if subcmd == "doctor":
+            from scraperx.doctor import main as doctor_main
+
+            sys.exit(doctor_main())
     _main_url()
 
 

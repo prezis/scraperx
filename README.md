@@ -453,6 +453,34 @@ Subcommands:
 
   scraperx discover URL
     List embedded videos found on a webpage (6 providers).
+
+  scraperx doctor [--json]
+    System diagnostic — check Python, GPU, Ollama, optional deps,
+    system tools (yt-dlp, ffmpeg). Prints install hints for missing extras.
+```
+
+**Example — check what optional features you have ready:**
+
+```bash
+$ scraperx doctor
+scraperx doctor — system diagnostic
+
+Python:   3.12.3
+Platform: Linux x86_64
+
+GPU acceleration:
+  ✓ NVIDIA CUDA: NVIDIA GeForce RTX 5090, 32607 MiB, 570.211.01
+
+Optional libraries:
+  ✓ PIL
+  ✓ faster_whisper (1.2.1)
+  ✓ bs4
+  ✗ imagehash        — pip install scraperx[vision]      # perceptual avatar hashing
+
+Summary:
+  ✓ Fast transcription ready (faster-whisper + GPU)
+  ! Avatar matching falls back to SHA256 — install: pip install scraperx[vision]
+  ...
 ```
 
 ---
