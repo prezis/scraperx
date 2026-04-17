@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- **`VimeoScraper.get_metadata()` — fallback to player config when oEmbed 404s.** Vimeo's oEmbed endpoint has been unreliable since late 2025 (returns 404 on live queries even for public videos). `get_metadata` now tries oEmbed first and transparently falls back to `player.vimeo.com/video/{id}/config` for durable metadata (title, author, duration, thumbnail). Result dict now includes a `source` field (`"oembed"` | `"player_config"`). Only raises if BOTH endpoints fail.
 
 ## [1.3.0] — 2026-04-17
 

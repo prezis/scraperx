@@ -181,24 +181,71 @@ class VimeoScraper:
     def __init__(self):
         pass
 
-    def get_metadata(self, url: str) -> dict:
-        """Returns oEmbed metadata dict. Raises on invalid URL or unavailable video."""
+    def get_metadata(self, url: str, referer: Optional[str] = None) -> dict:
+        """Return metadata dict for a Vimeo video.
+
+        Tries oEmbed first (lightweight, includes iframe HTML). Falls back to
+        player config JSON if oEmbed 404s — this happens in practice because
+        Vimeo's oEmbed endpoint has been unreliable since late 2025. Player
+        config is the durable source.
+
+        Raises RuntimeError if BOTH oEmbed AND player config fail — meaning
+        the video is genuinely unavailable, private, or the id is wrong.
+        """
         if not _is_vimeo_url(url):
             raise ValueError(f"Not a Vimeo URL: {url}")
         video_id, _hash = parse_vimeo_url(url)
+
+        # --- Attempt 1: oEmbed (preferred — includes iframe html + thumbnail) ---
         try:
             oembed = _fetch_oembed(url)
-        except (HTTPError, URLError, json.JSONDecodeError) as e:
-            raise RuntimeError(f"oEmbed fetch failed for {url}: {e}") from e
+            return {
+                "video_id": video_id,
+                "title": oembed.get("title", ""),
+                "author_name": oembed.get("author_name", ""),
+                "duration": oembed.get("duration", 0),
+                "thumbnail_url": oembed.get("thumbnail_url", ""),
+                "upload_date": oembed.get("upload_date", ""),
+                "html": oembed.get("html", ""),
+                "canonical_url": f"https://vimeo.com/{video_id}",
+                "source": "oembed",
+            }
+        except (HTTPError, URLError, json.JSONDecodeError) as oembed_err:
+            logger.debug("Vimeo oEmbed failed (%s), falling back to player config", oembed_err)
+
+        # --- Attempt 2: player config JSON (durable, unauth) ---
+        try:
+            cfg = _fetch_player_config(video_id, referer=referer)
+        except (HTTPError, URLError, json.JSONDecodeError) as cfg_err:
+            raise RuntimeError(
+                f"Vimeo metadata fetch failed for {url}: oEmbed and player config both unavailable. "
+                f"Last error: {cfg_err}. Video may be private, deleted, or embed-domain-locked "
+                f"(try passing referer= matching the embedder page)."
+            ) from cfg_err
+
+        video = cfg.get("video", {}) if isinstance(cfg.get("video"), dict) else {}
+        owner = video.get("owner", {}) if isinstance(video.get("owner"), dict) else {}
+        thumbs = video.get("thumbs", {}) if isinstance(video.get("thumbs"), dict) else {}
+        # Pick largest thumbnail
+        thumbnail_url = ""
+        if isinstance(thumbs, dict) and thumbs:
+            # thumbs keys are sizes like "640", "960", "1280" — pick largest numeric key
+            try:
+                largest = max((k for k in thumbs if k.isdigit()), key=int, default="")
+                thumbnail_url = thumbs.get(largest, "") if largest else next(iter(thumbs.values()), "")
+            except (ValueError, TypeError):
+                thumbnail_url = next(iter(thumbs.values()), "") if thumbs else ""
+
         return {
             "video_id": video_id,
-            "title": oembed.get("title", ""),
-            "author_name": oembed.get("author_name", ""),
-            "duration": oembed.get("duration", 0),
-            "thumbnail_url": oembed.get("thumbnail_url", ""),
-            "upload_date": oembed.get("upload_date", ""),
-            "html": oembed.get("html", ""),
+            "title": video.get("title", ""),
+            "author_name": owner.get("name", ""),
+            "duration": video.get("duration", 0),
+            "thumbnail_url": thumbnail_url,
+            "upload_date": "",  # not in player config
+            "html": "",  # player config doesn't provide embed iframe markup
             "canonical_url": f"https://vimeo.com/{video_id}",
+            "source": "player_config",
         }
 
     def get_transcript(
