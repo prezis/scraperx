@@ -5,34 +5,41 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scraperx"
 version = "1.3.0"
-description = "Multi-method X/Twitter scraper + YouTube transcriber. No API keys required."
+description = "Universal scraper + video intelligence — X/Twitter, YouTube, Vimeo, generic video discovery, impersonation detection via perceptual hashing. No API keys required."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
     {name = "prezis"},
 ]
-keywords = ["twitter", "x", "scraper", "youtube", "transcript", "fxtwitter"]
+keywords = [
+    "twitter", "x", "scraper", "youtube", "vimeo", "transcript",
+    "fxtwitter", "vxtwitter", "whisper", "video-discovery",
+    "impersonation-detection", "perceptual-hash", "phash",
+    "no-api-keys", "osint", "fact-checking",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Internet",
+    "Topic :: Multimedia :: Video",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 
 [project.optional-dependencies]
 twscrape = ["twscrape>=0.12"]
-whisper = ["openai-whisper>=20231117"]
-blockchain = ["playwright>=1.40"]
+whisper = ["faster-whisper>=1.0"]
 vision = ["imagehash>=4.3", "Pillow>=10.0"]
 video-discovery = ["beautifulsoup4>=4.12"]
-dev = ["pytest>=7.0"]
+blockchain = ["playwright>=1.40"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
 
 [project.scripts]
 scraperx = "scraperx.__main__:main"
@@ -41,9 +48,13 @@ scraperx = "scraperx.__main__:main"
 Homepage = "https://github.com/prezis/scraperx"
 Repository = "https://github.com/prezis/scraperx"
 Issues = "https://github.com/prezis/scraperx/issues"
+Changelog = "https://github.com/prezis/scraperx/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["scraperx*"]
+
+[tool.setuptools.package-data]
+scraperx = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,8 +1,33 @@
 # ScraperX
 
-Multi-method X/Twitter scraper + YouTube transcriber with automatic fallback.
+**Universal scraping + video intelligence, no API keys required.**
 
-No API keys required. No accounts needed. Just works.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/prezis/scraperx/actions/workflows/ci.yml/badge.svg)](https://github.com/prezis/scraperx/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-1.3.0-informational.svg)](CHANGELOG.md)
+
+ScraperX fetches social-media posts, transcribes videos, and verifies authenticity — without API keys or account credentials. Built on stdlib, with optional extras for perceptual image hashing, web scraping helpers, and GPU-accelerated speech-to-text.
+
+> **Status: beta.** Core functionality is stable (212 mocked tests); new v1.3.0 features (Vimeo, video discovery, thread authenticity, avatar pHash) are freshly-released — feedback welcome.
+
+---
+
+## What it does
+
+- **X / Twitter** — tweets, threads, profiles, search. Fallback chain (FxTwitter → vxTwitter → yt-dlp → oEmbed) keeps data flowing when any single endpoint breaks.
+- **YouTube transcription** — auto-captions, with fallback to `faster-whisper` (GPU) or `whisper` (CLI).
+- **Vimeo transcription** (NEW in 1.3.0) — `oembed` + player config + creator-uploaded VTT tracks, falling back to yt-dlp + whisper.
+- **Video discovery** (NEW) — scan any webpage for embedded videos across 6 providers (YouTube, Vimeo, Wistia, JWPlayer, Brightcove, HTML5).
+- **Thread authenticity** (NEW) — formal 4-property check on a reconstructed thread: `same_conversation`, `single_author` (numeric ID), `chronological`, `no_interpolation`.
+- **Impersonation detection** (NEW) — perceptual-hash avatar matcher (pHash 8×8) with SQLite cache + rolling-window registry. Catches scammers who re-upload a victim's avatar under a typosquat handle.
+- **Scam content detection** — crypto-giveaway phrases, wallet addresses, shortener domains, emoji spam.
+- **Token extraction** — `$CASHTAG` mentions + known Solana tokens.
+- **SQLite persistence** — tweets, profiles, mentions, avatar hashes, search cache.
+
+Why no API keys? The official APIs are expensive, rate-limited, and unstable. ScraperX leans on public endpoints (oEmbed, FxTwitter, vxTwitter, syndication, yt-dlp) with no auth wall.
+
+---
 
 ## Install
 
@@ -10,7 +35,9 @@ No API keys required. No accounts needed. Just works.
 pip install git+https://github.com/prezis/scraperx.git
 ```
 
-Or clone and install locally:
+Not yet on PyPI — install from GitHub.
+
+Or clone + editable:
 
 ```bash
 git clone https://github.com/prezis/scraperx.git
@@ -18,227 +45,378 @@ cd scraperx
 pip install -e .
 ```
 
-## Quick Start
+### Optional extras
+
+| Extra | Installs | Enables |
+|---|---|---|
+| `[vision]` | `imagehash>=4.3`, `Pillow>=10.0` | Perceptual-hash avatar matching (falls back to SHA256 when absent) |
+| `[video-discovery]` | `beautifulsoup4>=4.12` | More robust HTML parsing for `discover_videos` |
+| `[whisper]` | `faster-whisper>=1.0` | GPU-accelerated transcription (4× faster than openai-whisper on CPU) |
+| `[twscrape]` | `twscrape>=0.12` | Optional account-backed twscrape backend |
+
+Combined install:
 
 ```bash
-# Scrape a tweet
-scraperx https://x.com/user/status/123456
-
-# Get a profile
-scraperx https://x.com/elonmusk
-
-# Fetch full thread
-scraperx https://x.com/user/status/123456 --thread
-
-# Search tweets (zero credentials, via DuckDuckGo + FxTwitter)
-scraperx search "Meteora DLMM strategy" --limit 10
-scraperx search "from:elonmusk AI agents" --time w   # last week
-scraperx search "prediction market" --json            # JSON output
-
-# Transcribe YouTube video
-scraperx https://youtube.com/watch?v=dQw4w9WgXcQ
-
-# JSON output (pipe to jq, store, etc.)
-scraperx https://x.com/user/status/123456 --json
+pip install "scraperx[vision,video-discovery,whisper] @ git+https://github.com/prezis/scraperx.git"
 ```
 
-Also works as a module:
+System tools (optional): `yt-dlp` for audio download on YouTube/Vimeo whisper path; `whisper` CLI as fallback when `faster-whisper` not installed.
+
+---
+
+## Quick start
+
+### CLI
 
 ```bash
-python -m scraperx https://x.com/user/status/123456
+scraperx https://x.com/user/status/123456789       # scrape a tweet
+scraperx https://x.com/user/status/123 --thread    # full thread
+scraperx @elonmusk                                 # profile
+scraperx search "Meteora DLMM" --limit 10          # search (DDG + FxTwitter)
+scraperx https://youtube.com/watch?v=dQw4w9WgXcQ   # YouTube transcript
+scraperx https://vimeo.com/76979871                # Vimeo transcript
+scraperx discover https://some-company.com/tour    # find embedded videos
 ```
 
-## Python API
+### Python
 
 ```python
-from scraperx import XScraper, get_profile, get_thread, search_tweets, SocialDB
+from scraperx import XScraper, VimeoScraper, discover_videos, check_thread_authenticity
 
-# Tweet
 scraper = XScraper()
-tweet = scraper.get_tweet("https://x.com/user/status/123")
-print(tweet.text, tweet.likes, tweet.media_urls)
+tweet = scraper.get_tweet("https://x.com/user/status/1234567890")
+print(f"{tweet.author_handle}: {tweet.text}")
+print(f"  reply={tweet.is_reply}  quote={tweet.is_quote}")
+print(f"  author verified={tweet.author_verified} ({tweet.author_verified_type})")
+print(f"  joined={tweet.author_joined}  followers={tweet.author_followers}")
 
-# Profile
-profile = get_profile("elonmusk")
-print(f"{profile.name}: {profile.followers:,} followers")
-
-# Thread
-thread = get_thread("https://x.com/user/status/123")
-for t in thread.all_tweets:
-    print(t.text)
-
-# YouTube
-from scraperx.youtube_scraper import YouTubeScraper
-yt = YouTubeScraper()
-result = yt.get_transcript("https://youtube.com/watch?v=...")
+vimeo = VimeoScraper()
+result = vimeo.get_transcript("https://vimeo.com/76979871")
 print(result.transcript[:500])
 
-# Search tweets (DuckDuckGo discovery + FxTwitter enrichment)
-results = search_tweets("Solana LP strategy", limit=5, time_filter="w")
-for t in results:
-    print(f"@{t.author_handle}: {t.text[:100]}")
-
-# Token extraction
-from scraperx import extract_token_mentions
-mentions = extract_token_mentions("$SOL to the moon, $WIF looking good")
-# [TokenMention(symbol='SOL', ...), TokenMention(symbol='WIF', ...)]
-
-# Store & query
-with SocialDB() as db:
-    db.save_tweet(tweet)
-    buzz = db.get_token_buzz("SOL", hours=24)
-    print(f"{buzz['mention_count']} mentions by {buzz['unique_authors']} authors")
+refs = discover_videos("https://some-blog.example.com/post")
+for v in refs:
+    print(f"{v.provider}: {v.canonical_url}")
 ```
+
+---
 
 ## Architecture
 
 ```
-                         URL / Query Input
-                              |
-                      __main__.py (CLI router)
-                   /     |        \         \        \
-             Tweet?  Profile?  Thread?  YouTube?  Search?
-               |        |        |         |         |
-          scraper.py profile.py thread.py yt_scraper search.py
-               |        |        |         |         |
-       Fallback Chain FxTwitter Walk Up  captions  DDG discovery
-       ┌──────────┐   User API  via IDs  →whisper  + FxTwitter
-       │FxTwitter │                                 enrichment
-       │vxTwitter │
-       │yt-dlp    │
-       │oembed    │
-       └──────────┘
-                \        |       /
-                social_db.py (SQLite)
-                       |
-             token_extractor.py
+                              URL or @handle or query
+                                      │
+                                      ▼
+                          ┌───────────────────────────┐
+                          │   __main__.py CLI router  │
+                          └───────────────────────────┘
+            ┌────────┬─────────┬─────────┬─────────┬──────────┬──────────┐
+            ▼        ▼         ▼         ▼         ▼          ▼          ▼
+         Tweet   Profile    Thread   YouTube    Vimeo    Discover    Search
+            │        │         │         │         │          │          │
+       scraper.py profile thread.py yt_sc..  vimeo_sc..  disco...  search.py
+            │        │         │         │         │          │          │
+       Fallback Fx+synd   walk up  captions   oEmbed +  regex+bs4  DDG+Fx
+        chain   timeline  (Fx) +   → whisper  config     scan        enrich
+       ┌──────┐            walk                JSON
+       │ Fx   │            down                 │
+       │ vx   │          (synd+DDG)             ▼
+       │yt-dlp│                             text_tracks
+       │oembed│                             → whisper
+       └──────┘
+                  \     │      /          \     /         │
+                   ▼    ▼     ▼            ▼   ▼          │
+                  ┌────────────────────────────┐          │
+                  │   impersonation.py         │          │
+                  │  • handle typosquat        │          │
+                  │  • scam content regex      │          │
+                  │  • AvatarMatcher (pHash)   │          │
+                  │  • VerifiedAvatarRegistry  │          │
+                  └────────────────────────────┘          │
+                                │                         │
+                                ▼                         │
+                       ┌──────────────────┐               │
+                       │  authenticity.py │               │
+                       │  4-property check│               │
+                       └──────────────────┘               │
+                                │                         │
+                                ▼                         ▼
+                        ┌──────────────────────────────────┐
+                        │  social_db.py (SQLite)           │
+                        │  tweets · profiles · mentions    │
+                        │  avatar_hash · verified_avatars  │
+                        └──────────────────────────────────┘
 ```
 
-## Fallback Chain
+---
 
-Every tweet fetch tries 4 methods in order. If one fails, it moves to the next:
+## Feature guide
 
-| # | Method | Auth | Data Quality | Reliability |
-|---|--------|------|-------------|-------------|
-| 1 | FxTwitter API | None | Full (text, stats, media, articles) | High |
-| 2 | vxTwitter API | None | Full (text, stats, media) | High |
-| 3 | yt-dlp | Cookies (optional) | Medium (text, stats, video URL) | Medium |
-| 4 | oembed | None | Minimal (text, author only) | Very High |
+### 1. Tweet scraping — 21 new fields in 1.3.0
 
-The chain ensures you always get at least the tweet text, even if third-party APIs go down. oembed is Twitter's own official endpoint.
+```python
+from scraperx import XScraper
 
-## Modules
+scraper = XScraper()
+t = scraper.get_tweet("https://x.com/user/status/123")
 
-### Core Scraping
+# Core (existed pre-1.3.0)
+t.id, t.text, t.author_handle, t.likes, t.retweets, t.views, t.media_urls, t.quoted_tweet
 
-| Module | What it does |
-|--------|-------------|
-| `scraper.py` | Tweet scraping with 4-method fallback. `XScraper().get_tweet(url)` |
-| `profile.py` | Profile data (bio, followers, verified). `get_profile("handle")` |
-| `thread.py` | Full thread reconstruction. `get_thread(url)` |
-| `search.py` | Tweet search via DuckDuckGo + FxTwitter. `search_tweets("query")` |
-| `youtube_scraper.py` | Video transcription (auto-captions → faster-whisper GPU → whisper CLI fallback). `YouTubeScraper().get_transcript(url)` |
-| `vimeo_scraper.py` | Vimeo video transcription (oEmbed + player config + whisper fallback) |
-| `video_discovery.py` | Detect embedded videos on arbitrary webpages (6 providers) |
+# NEW — reply/quote/thread context
+t.is_reply, t.in_reply_to_tweet_id, t.in_reply_to_handle, t.in_reply_to_author_id
+t.is_quote, t.conversation_id
 
-### Data & Storage
+# NEW — temporal + locale
+t.created_at, t.created_timestamp, t.lang, t.possibly_sensitive, t.source_client
 
-| Module | What it does |
-|--------|-------------|
-| `social_db.py` | SQLite storage with TTL caching. Tweets, profiles, mentions, search cache |
-| `token_extractor.py` | Extracts $CASHTAG mentions and known Solana tokens from text |
+# NEW — community/note flags
+t.is_note_tweet, t.is_community_note_marked
 
-### Optional
+# NEW — author trust signals
+t.author_verified, t.author_verified_type  # "blue" | "business" | "government"
+t.author_affiliation  # org-linked badge dict
+t.author_followers, t.author_following
+t.author_joined       # RFC 2822 — account age, strong scam signal
+t.author_protected, t.is_pinned
+```
 
-| Module | What it does |
-|--------|-------------|
-| `twscrape_backend.py` | Optional twscrape wrapper (requires Twitter accounts, `pip install twscrape`) |
+All backward compatible — every new field has a safe default.
 
-## CLI Reference
+### 2. Thread reconstruction + authenticity
+
+```python
+from scraperx import get_thread, check_thread_authenticity
+
+thread = get_thread("https://x.com/user/status/123456")
+for t in thread.all_tweets:
+    print(t.text)
+
+auth = check_thread_authenticity(thread)
+print(f"Authentic: {auth.is_authentic}")
+print(f"  same conversation: {auth.same_conversation}")
+print(f"  single author:     {auth.single_author}")
+print(f"  chronological:     {auth.chronological}")
+print(f"  no interpolation:  {auth.no_interpolation}")
+if auth.reasons:
+    for r in auth.reasons:
+        print(f"  ↳ {r}")
+```
+
+**Formal authenticity properties:**
+1. `same_conversation` — all tweets share the root's `conversation_id`
+2. `single_author` — all tweets share the root's numeric `author_id` (handles are mutable; IDs are not)
+3. `chronological` — `created_timestamp` non-decreasing along the reply chain
+4. `no_interpolation` — every `in_reply_to_tweet_id` resolves within the thread set
+
+**Advisory flags:** `has_branches` (author replied twice to the same parent — path, not tree), `root_deleted` (conversation_id set but root content missing).
+
+**Graceful degradation** when the API omits a field: `missing_fields` tells you why, and the checker falls back (`author_handle` if numeric ID missing; tweet-ID ordering if timestamps missing).
+
+### 3. Impersonation detection — perceptual avatar hashing
+
+Scammers copy a verified account's avatar and re-upload it — different URL, same pixels. URL-string comparison is useless. `AvatarMatcher` uses pHash 8×8 (64-bit perceptual hash via DCT) with Hamming-distance thresholds.
+
+```python
+from scraperx import AvatarMatcher, VerifiedAvatarRegistry
+
+matcher = AvatarMatcher()
+registry = VerifiedAvatarRegistry()
+
+# Seed the registry with known-good avatars
+registry.record_avatar("elonmusk", "https://pbs.twimg.com/profile_images/...", matcher)
+
+# A reply from @elonmuskk (typosquat) claiming to be Elon
+is_match, hamming, matched = registry.check_impersonation(
+    claimed_handle="elonmuskk",
+    avatar_url="https://pbs.twimg.com/profile_images/NEW_URL.jpg",
+    matcher=matcher,
+)
+
+if not is_match and matched and matched != "elonmuskk":
+    print(f"IMPERSONATION: @elonmuskk sporting @{matched}'s avatar (hamming={hamming})")
+```
+
+**Hamming thresholds** (64-bit pHash):
+
+| Distance | Interpretation |
+|---|---|
+| ≤ 6 bits | near-certain same image (re-upload + light JPEG) |
+| 7–12 bits | same image modified (border/overlay/tint) — **flag** |
+| 13–20 bits | ambiguous, needs tiebreaker |
+| > 20 bits | different images |
+
+Default threshold `10`. Caches hashes in SQLite with 30-day TTL. Rolling window of 5 hashes per handle tolerates intentional avatar changes.
+
+**Safety:** host allowlist (`pbs.twimg.com`), 2MB size cap, `image/*` content-type check — no SSRF.
+
+**Without `[vision]` extra:** degrades to content-SHA256 compare (byte-identical only). Fully opt-in.
+
+### 4. YouTube + Vimeo transcription
+
+```python
+from scraperx import VimeoScraper
+from scraperx.youtube_scraper import YouTubeScraper
+
+# YouTube
+yt = YouTubeScraper()
+res = yt.get_transcript("https://youtube.com/watch?v=dQw4w9WgXcQ")
+print(res.transcript[:500])
+
+# Vimeo
+vm = VimeoScraper()
+res = vm.get_transcript("https://vimeo.com/76979871")
+print(f"{res.title} / {res.author} / {res.duration_seconds}s")
+print(f"method: {res.transcript_method}")   # text_tracks | whisper_faster | whisper_cli
+print(res.transcript[:500])
+
+# Embed-domain-locked Vimeo — pass the embedder URL as referer
+res = vm.get_transcript(
+    "https://player.vimeo.com/video/123456",
+    referer="https://some-company.com/product-tour",
+)
+```
+
+Transcription priority: creator-uploaded VTT → `faster-whisper` (GPU) → `whisper` CLI. Auto-detects GPU (float16 on CUDA, int8 on Metal, CPU fallback).
+
+### 5. Video discovery — scan any webpage
+
+```python
+from scraperx import discover_videos, fetch_any_video_transcript
+
+refs = discover_videos("https://some-company.example.com/product")
+for v in refs:
+    print(f"{v.provider}: {v.canonical_url}  (embed: {v.embed_url})")
+
+# Top-level dispatcher — direct URL or webpage, auto-routes
+result = fetch_any_video_transcript("https://some-blog.com/post-with-vimeo-embed")
+```
+
+**Detects 6 provider patterns:**
+- YouTube / youtube-nocookie iframes
+- Vimeo iframes (incl. unlisted-with-hash `?h=abc`)
+- Wistia iframes AND JS div-embeds (`<div class="wistia_embed wistia_async_...">`)
+- JWPlayer (`cdn.jwplayer.com/players/...`)
+- Brightcove (`players.brightcove.net/{acc}/{player}/index.html?videoId={id}`)
+- HTML5 `<video>` / `<source>` / `og:video` meta / JSON-LD `VideoObject`
+
+Deduplicates by `(provider, id)`. Works without `beautifulsoup4` (regex fallback). Returns `VideoRef` objects with `page_url` + `referer` for embed-locked downstream calls.
+
+### 6. Profile, search, token extraction
+
+```python
+from scraperx import get_profile, search_tweets, extract_token_mentions, SocialDB
+
+p = get_profile("elonmusk")
+print(f"{p.name} ({p.handle}): {p.followers:,} followers, verified={p.verified}")
+
+results = search_tweets("Solana LP strategy", limit=5, time_filter="w")
+for t in results:
+    print(f"@{t.author_handle}: {t.text[:120]}")
+
+mentions = extract_token_mentions("$SOL to the moon, $WIF looking strong")
+for m in mentions:
+    print(m.symbol, m.kind)  # ("SOL", "cashtag"), ("WIF", "cashtag")
+
+with SocialDB() as db:
+    db.save_tweet(results[0])
+    buzz = db.get_token_buzz("SOL", hours=24)
+    print(f"{buzz['mention_count']} mentions / {buzz['unique_authors']} authors")
+```
+
+---
+
+## CLI reference
 
 ```
-scraperx [URL] [OPTIONS]
+scraperx [URL|@handle] [OPTIONS]
 
 Positional:
-  URL                   Tweet URL, profile URL, YouTube URL, or @handle
+  URL|@handle         Tweet URL, profile URL, YouTube/Vimeo URL, or @handle
 
 Options:
-  --json                Output as JSON
-  --thread              Fetch full thread (tweet URLs only)
-  --cookies PATH        Cookies file for yt-dlp
-  --whisper-model MODEL Whisper model: base, medium, large (default: base)
-  --force-whisper       Skip auto-captions, use Whisper directly
-  -v, --verbose         Debug logging
+  --json              JSON output
+  --thread            Fetch full thread (for tweet URLs)
+  --cookies PATH      Cookies file for yt-dlp
+  --whisper-model M   Whisper model: base | medium | large (default: base)
+  --force-whisper     Skip auto-captions, go straight to Whisper
+  -v, --verbose       Debug logging
 
+Subcommands:
 
-scraperx search QUERY [OPTIONS]
+  scraperx search QUERY [OPTIONS]
+    -n, --limit N         Max results (default: 10)
+    -t, --time {d,w,m,y}  Day / week / month / year
+    --json
+    --fast                Tweet IDs only (skip FxTwitter enrichment)
 
-Positional:
-  QUERY                 Search terms (supports from:user, quotes, DDG operators)
-
-Options:
-  -n, --limit N         Max results (default: 10)
-  -t, --time {d,w,m,y}  Time filter: d=day, w=week, m=month, y=year
-  --json                Output as JSON
-  --fast                Return tweet IDs only (skip FxTwitter enrichment)
-  -v, --verbose         Debug logging
+  scraperx discover URL
+    List embedded videos found on a webpage (6 providers).
 ```
 
-Auto-detection routes the URL to the right handler:
-- `x.com/user/status/ID` or `twitter.com/...` → tweet
-- `x.com/handle` → profile
-- `youtube.com/watch?v=ID` or `youtu.be/ID` → YouTube
-- `@handle` or bare `handle` → profile
-- `search QUERY` → DuckDuckGo tweet discovery + FxTwitter enrichment
-
-## Data Storage
-
-Social data is stored in `~/.scraperx/social.db` (SQLite):
-
-| Table | TTL | Purpose |
-|-------|-----|---------|
-| `tweets` | Forever | Scraped tweet content and metadata |
-| `profiles` | 7 days | User profiles (re-scraped when stale) |
-| `token_mentions` | Forever | Extracted $CASHTAG and token name matches |
-| `search_cache` | 1 hour | Cached search results |
-
-## Media Quality
-
-Videos: automatically selects the highest bitrate variant from API responses.
-Photos: appends `:large` suffix for full resolution from `pbs.twimg.com`.
+---
 
 ## Testing
 
 ```bash
-# All tests (180 tests, ~4s, zero network calls)
 pytest -v
-
-# Just tweet scraper
-pytest tests/test_scraper.py -v
-
-# Just YouTube
-pytest tests/test_youtube_scraper.py -v
 ```
 
-All tests are fully mocked — no network calls, no external dependencies needed.
+All tests are fully mocked — no network, no subprocess, no filesystem side effects. Runs in ~3 seconds. CI runs on Python 3.10, 3.11, 3.12.
+
+---
+
+## Data storage
+
+`~/.scraperx/social.db` (SQLite):
+
+| Table | TTL | Purpose |
+|---|---|---|
+| `tweets` | forever | scraped tweet content + metadata |
+| `profiles` | 7 days | re-scraped when stale |
+| `token_mentions` | forever | `$CASHTAG` + token matches |
+| `search_cache` | 1 hour | cached search results |
+| `avatar_hash` | 30 days | perceptual hashes for AvatarMatcher |
+| `verified_avatars` | forever | rolling-window known-good hashes |
+
+---
 
 ## Dependencies
 
-**Required (stdlib only):**
-- Python 3.10+
-- No pip packages needed for core functionality
+**Required:** Python 3.10+. Stdlib only — no pip installs for core tweet/profile/thread/search scraping.
 
-**Optional — GPU-accelerated transcription (recommended):**
-- `pip install faster-whisper` — 4x faster than OpenAI whisper, auto-detects CUDA/Metal GPU
-- Auto-detection: if GPU available → uses float16 on CUDA, int8 on Metal. No GPU → CPU fallback.
+**Optional (install via extras):**
+- `faster-whisper>=1.0` (`[whisper]`) — GPU-accelerated transcription
+- `imagehash>=4.3` + `Pillow>=10.0` (`[vision]`) — perceptual avatar matching
+- `beautifulsoup4>=4.12` (`[video-discovery]`) — more robust video discovery
+- `twscrape>=0.12` (`[twscrape]`) — optional account-backed X scraping
 
 **Optional system tools:**
-- `yt-dlp` — for yt-dlp fallback method and YouTube downloads
-- `whisper` — for YouTube audio transcription (fallback when faster-whisper not installed)
+- `yt-dlp` — audio download for Vimeo/YouTube whisper path, tweet video fetch
+- `whisper` CLI — fallback when `faster-whisper` unavailable
 
-**Optional pip packages:**
-- `twscrape` — for Twitter account-based scraping (profiles, search, timelines)
+---
+
+## Contributing
+
+Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup + testing.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md). Current: **1.3.0** (2026-04-17).
+
+## Security
+
+Reports of security issues: see [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT
+[MIT](LICENSE) — do what you want, attribution appreciated.
+
+## Acknowledgments
+
+Stands on the shoulders of:
+- [FxTwitter](https://github.com/FixTweet/FxTwitter) and [vxTwitter](https://github.com/dylanpdx/BetterTwitFix) — the oauth-free tweet APIs that make this possible
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — 1800+ video-site extractors
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 4× speedup over OpenAI Whisper
+- [imagehash](https://github.com/JohannesBuchner/imagehash) — perceptual hashing
