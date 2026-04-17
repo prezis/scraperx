@@ -36,7 +36,7 @@ classifiers = [
 [project.optional-dependencies]
 twscrape = ["twscrape>=0.12"]
 whisper = ["faster-whisper>=1.0"]
-vision = ["imagehash>=4.3", "Pillow>=10.0"]
+vision = ["imagehash>=4.3.2", "Pillow>=10.0"]
 video-discovery = ["beautifulsoup4>=4.12"]
 blockchain = ["playwright>=1.58.0"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0"]
