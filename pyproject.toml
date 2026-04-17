@@ -39,7 +39,7 @@ whisper = ["faster-whisper>=1.2.1"]
 vision = ["imagehash>=4.3.2", "Pillow>=10.0"]
 video-discovery = ["beautifulsoup4>=4.12"]
 blockchain = ["playwright>=1.58.0"]
-dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+dev = ["pytest>=9.0.3", "pytest-cov>=4.0"]
 
 [project.scripts]
 scraperx = "scraperx.__main__:main"
