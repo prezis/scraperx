@@ -14,6 +14,7 @@ Usage:
         if backend.is_configured():
             tweet = backend.get_tweet("1234567890")
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from twscrape import API, gather  # type: ignore[import-untyped]
+
     TWSCRAPE_AVAILABLE = True
 except ImportError:
     TWSCRAPE_AVAILABLE = False
@@ -46,6 +48,7 @@ def _run_async(coro: Any) -> Any:
     if loop and loop.is_running():
         # We're inside an existing event loop — create a new one in a thread
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(asyncio.run, coro).result()
     else:
@@ -90,7 +93,7 @@ def _tw_to_tweet(tw: Any) -> Tweet:
                     media_urls.append(item.url)
 
     raw_dict: dict = {}
-    _SENSITIVE = {'auth_token', 'cookies', 'session', 'password', 'token', 'secret'}
+    _SENSITIVE = {"auth_token", "cookies", "session", "password", "token", "secret"}
     if hasattr(tw, "dict"):
         try:
             raw_dict = tw.dict()
@@ -98,8 +101,9 @@ def _tw_to_tweet(tw: Any) -> Tweet:
             pass
     elif hasattr(tw, "__dict__"):
         try:
-            raw_dict = {k: str(v) for k, v in tw.__dict__.items()
-                        if not k.startswith("_") and k.lower() not in _SENSITIVE}
+            raw_dict = {
+                k: str(v) for k, v in tw.__dict__.items() if not k.startswith("_") and k.lower() not in _SENSITIVE
+            }
         except Exception:
             pass
 
@@ -161,8 +165,7 @@ class TwscrapeBackend:
             raise ValueError(f"User @{handle} not found")
         if hasattr(user, "dict"):
             return user.dict()
-        return {k: str(v) for k, v in user.__dict__.items()
-                if not k.startswith("_")}
+        return {k: str(v) for k, v in user.__dict__.items() if not k.startswith("_")}
 
     def search(self, query: str, limit: int = 20) -> list[Tweet]:
         """Search tweets. Returns list of our Tweet dataclass."""
@@ -174,7 +177,5 @@ class TwscrapeBackend:
         user = _run_async(self._api.user_by_login(handle))
         if user is None:
             raise ValueError(f"User @{handle} not found")
-        results = _run_async(
-            gather(self._api.user_tweets(user.id, limit=limit))
-        )
+        results = _run_async(gather(self._api.user_tweets(user.id, limit=limit)))
         return [_tw_to_tweet(tw) for tw in results]

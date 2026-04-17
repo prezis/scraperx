@@ -1,17 +1,18 @@
 """Tests for thread scraping module."""
+
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
-from scraperx.thread import Thread, get_thread, _get_parent_id
 from scraperx.scraper import Tweet
-
+from scraperx.thread import Thread, _get_parent_id, get_thread
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_fxtwitter_response(
     tweet_id: str,
@@ -37,6 +38,7 @@ def _make_fxtwitter_response(
 # ---------------------------------------------------------------------------
 # Thread dataclass tests
 # ---------------------------------------------------------------------------
+
 
 class TestThreadDefaults:
     def test_single_tweet_defaults(self):
@@ -64,6 +66,7 @@ class TestThreadDefaults:
 # _get_parent_id tests
 # ---------------------------------------------------------------------------
 
+
 class TestGetParentId:
     def test_replying_to_field(self):
         assert _get_parent_id({"replying_to": "999"}) == "999"
@@ -84,6 +87,7 @@ class TestGetParentId:
 # ---------------------------------------------------------------------------
 # get_thread tests
 # ---------------------------------------------------------------------------
+
 
 class TestGetThread:
     @patch("scraperx.thread._http_get_json")

@@ -1,11 +1,6 @@
 """Tests for token_extractor module."""
 
-import pytest
-
 from scraperx.token_extractor import (
-    IGNORE_TOKENS,
-    KNOWN_TOKENS,
-    TokenMention,
     extract_token_mentions,
 )
 

@@ -6,25 +6,24 @@ Usage:
     profile = get_profile("elonmusk")
     print(profile.name, profile.followers, profile.bio)
 """
+
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 from scraperx.scraper import _http_get_json
 
 logger = logging.getLogger(__name__)
 
-PROFILE_URL_RE = re.compile(
-    r"(?:https?://)?(?:twitter|x)\.com/(?P<handle>[A-Za-z0-9_]+)/?$"
-)
+PROFILE_URL_RE = re.compile(r"(?:https?://)?(?:twitter|x)\.com/(?P<handle>[A-Za-z0-9_]+)/?$")
 
 
 @dataclass
 class XProfile:
     """Parsed X/Twitter profile data."""
+
     handle: str
     name: str = ""
     bio: str = ""
@@ -36,7 +35,7 @@ class XProfile:
     location: str = ""
     avatar_url: str = ""
     banner_url: str = ""
-    website: Optional[str] = None
+    website: str | None = None
     verified: bool = False
     source_method: str = "fxtwitter"
     raw: dict = field(default_factory=dict, repr=False)
@@ -67,15 +66,13 @@ def get_profile(handle: str, timeout: int = 15) -> XProfile:
         ValueError: If the API returns a non-200 code or handle is invalid.
     """
     handle = handle.lstrip("@")
-    if not re.fullmatch(r'[A-Za-z0-9_]{1,50}', handle):
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,50}", handle):
         raise ValueError(f"Invalid Twitter handle: {handle!r}")
     url = f"https://api.fxtwitter.com/{handle}"
     data = _http_get_json(url, timeout)
 
     if data.get("code") != 200:
-        raise ValueError(
-            f"FxTwitter returned code {data.get('code')}: {data.get('message')}"
-        )
+        raise ValueError(f"FxTwitter returned code {data.get('code')}: {data.get('message')}")
 
     u = data["user"]
     verification = u.get("verification", {})

@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from scraperx.scraper import Tweet
 from scraperx.profile import XProfile
+from scraperx.scraper import Tweet
 from scraperx.social_db import SocialDB
 
 
@@ -58,11 +58,10 @@ def _make_profile(**overrides) -> XProfile:
 # Schema
 # ------------------------------------------------------------------
 
+
 def test_schema_created(db):
     """All four tables should exist after init."""
-    cur = db._conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    )
+    cur = db._conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = sorted(r["name"] for r in cur.fetchall())
     assert "profiles" in tables
     assert "search_cache" in tables
@@ -73,6 +72,7 @@ def test_schema_created(db):
 # ------------------------------------------------------------------
 # Tweets
 # ------------------------------------------------------------------
+
 
 def test_save_and_get_tweet(db):
     tw = _make_tweet()
@@ -106,6 +106,7 @@ def test_duplicate_tweet_replace(db):
 # ------------------------------------------------------------------
 # Profiles
 # ------------------------------------------------------------------
+
 
 def test_save_and_get_profile(db):
     prof = _make_profile()
@@ -146,13 +147,19 @@ def test_profile_staleness(db):
 # Token mentions
 # ------------------------------------------------------------------
 
+
 def test_token_mention_and_buzz(db):
     tw = _make_tweet(id="t1", likes=50, retweets=20, replies=5, views=500)
     db.save_tweet(tw)
     db.save_token_mention("t1", "SOL", "cashtag")
 
     tw2 = _make_tweet(
-        id="t2", author_handle="other", likes=10, retweets=2, replies=1, views=100,
+        id="t2",
+        author_handle="other",
+        likes=10,
+        retweets=2,
+        replies=1,
+        views=100,
     )
     db.save_tweet(tw2)
     db.save_token_mention("t2", "SOL", "text_match")
@@ -173,6 +180,7 @@ def test_token_buzz_empty(db):
 # ------------------------------------------------------------------
 # Search cache
 # ------------------------------------------------------------------
+
 
 def test_search_cache_hit(db):
     db.save_search_cache("solana news", ["t1", "t2", "t3"], ttl=3600)

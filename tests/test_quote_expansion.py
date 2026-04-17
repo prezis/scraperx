@@ -1,19 +1,18 @@
 """Tests for automatic quoted tweet and article expansion."""
+
 import json
 from unittest.mock import patch
 
-import pytest
-
 from scraperx.scraper import (
-    XScraper,
-    Tweet,
-    _parse_quoted_tweet,
-    _extract_article,
     _MAX_QUOTE_DEPTH,
+    Tweet,
+    XScraper,
+    _extract_article,
+    _parse_quoted_tweet,
 )
 
-
 # --- Fixtures: FxTwitter API responses ---
+
 
 def _make_fxtwitter_response(tweet_data: dict) -> dict:
     return {"code": 200, "tweet": tweet_data}
@@ -101,6 +100,7 @@ NESTED_TWEET = {
 
 # --- _extract_article ---
 
+
 class TestExtractArticle:
     def test_no_article(self):
         title, text = _extract_article({})
@@ -115,25 +115,26 @@ class TestExtractArticle:
         assert "Third paragraph" in text
 
     def test_article_preview_only(self):
-        title, text = _extract_article({
-            "article": {"title": "T", "preview_text": "Preview only"}
-        })
+        title, text = _extract_article({"article": {"title": "T", "preview_text": "Preview only"}})
         assert title == "T"
         assert text == "Preview only"
 
     def test_article_empty_blocks(self):
-        title, text = _extract_article({
-            "article": {
-                "title": "T",
-                "preview_text": "Fallback",
-                "content": {"blocks": []},
+        title, text = _extract_article(
+            {
+                "article": {
+                    "title": "T",
+                    "preview_text": "Fallback",
+                    "content": {"blocks": []},
+                }
             }
-        })
+        )
         assert title == "T"
         assert text == "Fallback"
 
 
 # --- _parse_quoted_tweet ---
+
 
 class TestParseQuotedTweet:
     def test_basic_quote(self):
@@ -172,21 +173,28 @@ class TestParseQuotedTweet:
 
 # --- Max recursion depth ---
 
+
 class TestMaxRecursionDepth:
     def _build_deep_chain(self, depth: int) -> dict:
         """Build a chain of quotes `depth` levels deep."""
         current = {
             "id": "0",
-            "text": f"Level 0",
+            "text": "Level 0",
             "author": {"name": "Deep", "screen_name": "deep"},
-            "likes": 0, "retweets": 0, "replies": 0, "views": 0,
+            "likes": 0,
+            "retweets": 0,
+            "replies": 0,
+            "views": 0,
         }
         for i in range(1, depth + 1):
             current = {
                 "id": str(i),
                 "text": f"Level {i}",
                 "author": {"name": "Deep", "screen_name": "deep"},
-                "likes": 0, "retweets": 0, "replies": 0, "views": 0,
+                "likes": 0,
+                "retweets": 0,
+                "replies": 0,
+                "views": 0,
                 "quote": current,
             }
         return current
@@ -215,6 +223,7 @@ class TestMaxRecursionDepth:
 
 
 # --- FxTwitter integration ---
+
 
 class TestFxTwitterQuoteExpansion:
     @patch("scraperx.scraper._http_get_json")
@@ -260,6 +269,7 @@ class TestFxTwitterQuoteExpansion:
 
 # --- vxTwitter ---
 
+
 class TestVxTwitterQuoteExpansion:
     @patch("scraperx.scraper._http_get_json")
     def test_vx_with_quote(self, mock_get):
@@ -267,7 +277,10 @@ class TestVxTwitterQuoteExpansion:
             "text": "VX tweet with quote",
             "user_name": "VX User",
             "user_screen_name": "vxuser",
-            "likes": 5, "retweets": 1, "replies": 0, "views": 100,
+            "likes": 5,
+            "retweets": 1,
+            "replies": 0,
+            "views": 100,
             "quote": QUOTED_TWEET_DATA,
         }
         scraper = XScraper()
@@ -281,7 +294,10 @@ class TestVxTwitterQuoteExpansion:
             "text": "VX plain",
             "user_name": "VX User",
             "user_screen_name": "vxuser",
-            "likes": 5, "retweets": 1, "replies": 0, "views": 100,
+            "likes": 5,
+            "retweets": 1,
+            "replies": 0,
+            "views": 100,
         }
         scraper = XScraper()
         tweet = scraper._via_vxtwitter("vxuser", "456")
@@ -290,6 +306,7 @@ class TestVxTwitterQuoteExpansion:
 
 # --- JSON serialization ---
 
+
 class TestJsonSerialization:
     """Test that tweets with quoted_tweet serialize properly via _tweet_to_dict."""
 
@@ -297,10 +314,17 @@ class TestJsonSerialization:
         from scraperx.__main__ import _tweet_to_dict
 
         tweet = Tweet(
-            id="1", text="hello", author="A", author_handle="a",
+            id="1",
+            text="hello",
+            author="A",
+            author_handle="a",
             quoted_tweet=Tweet(
-                id="2", text="quoted", author="B", author_handle="b",
-                article_title="Art", article_text="Full text",
+                id="2",
+                text="quoted",
+                author="B",
+                author_handle="b",
+                article_title="Art",
+                article_text="Full text",
             ),
         )
         d = _tweet_to_dict(tweet)
@@ -313,11 +337,20 @@ class TestJsonSerialization:
         from scraperx.__main__ import _tweet_to_dict
 
         tweet = Tweet(
-            id="1", text="top", author="A", author_handle="a",
+            id="1",
+            text="top",
+            author="A",
+            author_handle="a",
             quoted_tweet=Tweet(
-                id="2", text="mid", author="B", author_handle="b",
+                id="2",
+                text="mid",
+                author="B",
+                author_handle="b",
                 quoted_tweet=Tweet(
-                    id="3", text="bottom", author="C", author_handle="c",
+                    id="3",
+                    text="bottom",
+                    author="C",
+                    author_handle="c",
                 ),
             ),
         )
@@ -337,6 +370,7 @@ class TestJsonSerialization:
 
 
 # --- Tweet dataclass ---
+
 
 class TestTweetDataclassQuoteField:
     def test_default_none(self):

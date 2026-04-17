@@ -20,6 +20,7 @@ Usage:
     for tweet in thread.all_tweets:
         print(tweet.text)
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,6 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 from urllib.request import Request, urlopen
 
 from scraperx.scraper import (
@@ -46,6 +46,7 @@ _SYNDICATION_TIMELINE = "https://syndication.twitter.com/srv/timeline-profile/sc
 @dataclass
 class Thread:
     """A thread of tweets by the same author."""
+
     root_tweet: Tweet
     replies: list[Tweet] = field(default_factory=list)
     total_tweets: int = 0
@@ -64,15 +65,14 @@ class Thread:
 # FxTwitter helpers
 # ---------------------------------------------------------------------------
 
+
 def _fetch_tweet_fxtwitter(user: str, tweet_id: str, timeout: int = 15) -> tuple[Tweet, dict]:
     """Fetch a single tweet via FxTwitter, return (Tweet, raw_tweet_dict)."""
     url = f"{FXTWITTER_API}/{user}/status/{tweet_id}"
     data = _http_get_json(url, timeout=timeout)
 
     if data.get("code") != 200:
-        raise ValueError(
-            f"FxTwitter returned code {data.get('code')}: {data.get('message')}"
-        )
+        raise ValueError(f"FxTwitter returned code {data.get('code')}: {data.get('message')}")
 
     t = data["tweet"]
 
@@ -100,7 +100,7 @@ def _fetch_tweet_fxtwitter(user: str, tweet_id: str, timeout: int = 15) -> tuple
     return tweet, t
 
 
-def _enrich_tweet_from_syndication(tweet: "Tweet", syn_tweet: dict) -> None:
+def _enrich_tweet_from_syndication(tweet: Tweet, syn_tweet: dict) -> None:
     """Fill conversation_id + reply fields from Twitter syndication __NEXT_DATA__.
 
     Syndication tweet shape uses legacy v1.1 JSON fields:
@@ -166,13 +166,15 @@ def _get_author_handle(raw_tweet: dict) -> str:
 # Syndication timeline helpers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _SyndicationTweet:
     """Minimal tweet info extracted from syndication __NEXT_DATA__."""
+
     id: str
-    conversation_id: Optional[str]
-    in_reply_to_id: Optional[str]
-    in_reply_to_user: Optional[str]
+    conversation_id: str | None
+    in_reply_to_id: str | None
+    in_reply_to_user: str | None
     screen_name: str
     text: str
 
@@ -180,7 +182,7 @@ class _SyndicationTweet:
 def _fetch_syndication_timeline(
     user: str,
     timeout: int = 15,
-    raw_map: Optional[dict] = None,
+    raw_map: dict | None = None,
 ) -> list[_SyndicationTweet]:
     """Fetch the author's profile timeline from Twitter syndication.
 
@@ -193,15 +195,18 @@ def _fetch_syndication_timeline(
     syndication payload.
     """
     url = _SYNDICATION_TIMELINE.format(user=user)
-    req = Request(url, headers={
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-    })
+    req = Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
     try:
         with urlopen(req, timeout=timeout) as resp:
             html = resp.read().decode("utf-8", errors="replace")
@@ -238,14 +243,16 @@ def _fetch_syndication_timeline(
                 if id_str not in seen:
                     seen.add(id_str)
                     user_obj = obj.get("user", {})
-                    tweets.append(_SyndicationTweet(
-                        id=id_str,
-                        conversation_id=obj.get("conversation_id_str"),
-                        in_reply_to_id=obj.get("in_reply_to_status_id_str"),
-                        in_reply_to_user=obj.get("in_reply_to_screen_name"),
-                        screen_name=user_obj.get("screen_name", ""),
-                        text=(obj.get("full_text") or obj.get("text") or "")[:500],
-                    ))
+                    tweets.append(
+                        _SyndicationTweet(
+                            id=id_str,
+                            conversation_id=obj.get("conversation_id_str"),
+                            in_reply_to_id=obj.get("in_reply_to_status_id_str"),
+                            in_reply_to_user=obj.get("in_reply_to_screen_name"),
+                            screen_name=user_obj.get("screen_name", ""),
+                            text=(obj.get("full_text") or obj.get("text") or "")[:500],
+                        )
+                    )
                     if raw_map is not None:
                         raw_map[id_str] = obj
             for v in obj.values():
@@ -264,7 +271,7 @@ def _walk_down_syndication(
     seen_ids: set[str],
     timeout: int,
     max_new: int,
-    raw_map: Optional[dict] = None,
+    raw_map: dict | None = None,
 ) -> list[str]:
     """Find thread continuation tweet IDs via syndication timeline.
 
@@ -313,7 +320,8 @@ def _walk_down_syndication(
     if new_ids:
         logger.debug(
             "Syndication walk-down found %d new tweets for conversation %s",
-            len(new_ids), root_id,
+            len(new_ids),
+            root_id,
         )
     return new_ids
 
@@ -321,6 +329,7 @@ def _walk_down_syndication(
 # ---------------------------------------------------------------------------
 # DDG search fallback for walk-down
 # ---------------------------------------------------------------------------
+
 
 def _walk_down_ddg(
     author_handle: str,
@@ -338,7 +347,7 @@ def _walk_down_ddg(
 
     Returns ``(Tweet, raw_dict)`` pairs sorted by ID ascending.
     """
-    from scraperx.search import _ddg_search  # noqa: WPS433 (lazy to avoid circular)
+    from scraperx.search import _ddg_search
 
     # Build search query with text hint from root
     keywords = root_text[:60].split() if root_text else []
@@ -398,6 +407,7 @@ def _walk_down_ddg(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def get_thread(
     url: str,
     timeout: int = 15,
@@ -455,7 +465,8 @@ def get_thread(
         if parent_tweet.author_handle.lower() != author_lower:
             logger.debug(
                 "Parent tweet %s by different author (%s), stopping",
-                parent_id, parent_tweet.author_handle,
+                parent_id,
+                parent_tweet.author_handle,
             )
             break
 

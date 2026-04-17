@@ -1,12 +1,13 @@
 """Tests for X/Twitter scraper."""
-import json
-from unittest.mock import patch, MagicMock
+
+from unittest.mock import patch
+
 import pytest
 
-from scraperx.scraper import XScraper, Tweet, TweetNotFoundError, parse_tweet_url, _best_media_url, _strip_html
-
+from scraperx.scraper import Tweet, TweetNotFoundError, XScraper, _best_media_url, _strip_html, parse_tweet_url
 
 # --- URL parsing ---
+
 
 class TestParseUrl:
     def test_x_com(self):
@@ -41,6 +42,7 @@ FXTWITTER_RESPONSE = {
     },
 }
 
+
 class TestFxTwitter:
     @patch("scraperx.scraper._http_get_json")
     def test_success(self, mock_get):
@@ -73,6 +75,7 @@ VXTWITTER_RESPONSE = {
     "mediaURLs": ["https://pbs.twimg.com/vx.jpg"],
 }
 
+
 class TestVxTwitter:
     @patch("scraperx.scraper._http_get_json")
     def test_success(self, mock_get):
@@ -85,6 +88,7 @@ class TestVxTwitter:
 
 
 # --- Fallback chain ---
+
 
 class TestFallbackChain:
     @patch("scraperx.scraper._http_get_json")
@@ -99,9 +103,7 @@ class TestFallbackChain:
     @patch.object(XScraper, "_via_vxtwitter")
     @patch.object(XScraper, "_via_fxtwitter", side_effect=Exception("fx down"))
     def test_fallback_to_vx(self, mock_fx, mock_vx, mock_yt, mock_oe):
-        mock_vx.return_value = Tweet(
-            id="789", text="fallback", author="u", author_handle="u"
-        )
+        mock_vx.return_value = Tweet(id="789", text="fallback", author="u", author_handle="u")
         scraper = XScraper()
         tweet = scraper.get_tweet("https://x.com/u/status/789")
         assert tweet.source_method == "vxtwitter"
@@ -127,6 +129,7 @@ class TestFallbackChain:
 
 # --- Tweet dataclass ---
 
+
 class TestTweet:
     def test_defaults(self):
         t = Tweet(id="1", text="hi", author="A", author_handle="a")
@@ -140,8 +143,9 @@ class TestTweet:
 OEMBED_RESPONSE = {
     "author_name": "Oembed User",
     "author_url": "https://twitter.com/oembeduser",
-    "html": '<blockquote><p>This is the tweet text</p>&mdash; Oembed User</blockquote>',
+    "html": "<blockquote><p>This is the tweet text</p>&mdash; Oembed User</blockquote>",
 }
+
 
 class TestOembed:
     @patch("scraperx.scraper._http_get_json")
@@ -168,6 +172,7 @@ class TestOembed:
 
 
 # --- Media quality ---
+
 
 class TestMediaQuality:
     def test_video_highest_bitrate(self):
@@ -207,6 +212,7 @@ class TestMediaQuality:
 
 
 # --- Strip HTML ---
+
 
 class TestStripHtml:
     def test_basic(self):

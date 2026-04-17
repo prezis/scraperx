@@ -11,17 +11,19 @@ Usage:
     python -m scraperx dexscreener 0xADDRESS               # DexScreener token
     scraperx https://x.com/user/status/123456               # if pip installed
 """
+
 import argparse
 import json
 import logging
 import sys
 
-from .scraper import XScraper, Tweet, TWEET_URL_RE
-from .youtube_scraper import YouTubeScraper, YOUTUBE_URL_RE
-from .profile import get_profile, parse_profile_url, PROFILE_URL_RE
-from .search import search_tweets
-from scraperx.vimeo_scraper import VimeoScraper, _is_vimeo_url
 from scraperx.video_discovery import discover_videos
+from scraperx.vimeo_scraper import VimeoScraper, _is_vimeo_url
+
+from .profile import PROFILE_URL_RE, get_profile, parse_profile_url
+from .scraper import TWEET_URL_RE, Tweet, XScraper
+from .search import search_tweets
+from .youtube_scraper import YOUTUBE_URL_RE, YouTubeScraper
 
 
 def _is_youtube_url(url: str) -> bool:
@@ -59,10 +61,7 @@ def main():
 
 
 def _main_search():
-    parser = argparse.ArgumentParser(
-        prog="scraperx search",
-        description="Search tweets via DuckDuckGo + FxTwitter"
-    )
+    parser = argparse.ArgumentParser(prog="scraperx search", description="Search tweets via DuckDuckGo + FxTwitter")
     parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "search"
     parser.add_argument("query", nargs="+", help="Search query")
     parser.add_argument("--limit", "-n", type=int, default=10, help="Max results (default: 10)")
@@ -80,9 +79,7 @@ def _main_search():
 
 
 def _main_url():
-    parser = argparse.ArgumentParser(
-        description="Scrape X/Twitter tweets, profiles, threads, or YouTube transcripts"
-    )
+    parser = argparse.ArgumentParser(description="Scrape X/Twitter tweets, profiles, threads, or YouTube transcripts")
     parser.add_argument("url", nargs="?", help="Tweet URL, profile URL, or YouTube URL")
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
     parser.add_argument("--thread", action="store_true", help="Fetch full thread")
@@ -146,7 +143,7 @@ def _handle_youtube(args):
         print(f"{result.title} ({result.channel})")
         print(f"Duration: {result.duration_seconds // 60}min")
         print(f"Method: {result.transcript_method}")
-        print(f"---")
+        print("---")
         if len(result.transcript) > 2000:
             print(result.transcript[:2000])
             print(f"\n... [{len(result.transcript) - 2000} more chars]")
@@ -180,14 +177,13 @@ def _handle_vimeo(args):
         print(f"Author: {result.author}")
         print(f"Duration: {int(result.duration_seconds) // 60}min")
         print(f"Method: {result.transcript_method}")
-        print(f"---")
+        print("---")
         print(f"\nTranscript:\n{result.transcript}")
 
 
 def _main_discover():
     parser = argparse.ArgumentParser(
-        prog="scraperx discover",
-        description="Detect embedded videos on an arbitrary webpage"
+        prog="scraperx discover", description="Detect embedded videos on an arbitrary webpage"
     )
     parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "discover"
     parser.add_argument("url", help="Webpage URL to scan for embedded videos")
@@ -299,7 +295,7 @@ def _handle_tweet(args):
         print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
         print(f"@{tweet.author_handle} ({tweet.author})")
-        print(f"---")
+        print("---")
         print(tweet.text)
         if tweet.article_title:
             print(f"\n[Article: {tweet.article_title}]")
@@ -333,7 +329,7 @@ def _handle_thread(args):
         print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
         print(f"Thread by @{thread.root_tweet.author_handle} ({thread.total_tweets} tweets)")
-        print(f"===")
+        print("===")
         for i, t in enumerate(thread.all_tweets, 1):
             print(f"\n[{i}/{thread.total_tweets}]")
             print(t.text)
@@ -380,7 +376,7 @@ def _handle_profile_by_handle(args):
     else:
         v = " [verified]" if profile.verified else ""
         print(f"@{profile.handle} ({profile.name}){v}")
-        print(f"---")
+        print("---")
         if profile.bio:
             print(profile.bio)
         print(f"\n{profile.followers:,} followers | {profile.following:,} following | {profile.tweets_count:,} tweets")
@@ -413,18 +409,20 @@ def _handle_search(args):
     if args.json:
         out = []
         for t in tweets:
-            out.append({
-                "id": t.id,
-                "text": t.text,
-                "author": t.author,
-                "author_handle": t.author_handle,
-                "likes": t.likes,
-                "retweets": t.retweets,
-                "replies": t.replies,
-                "views": t.views,
-                "media_urls": t.media_urls,
-                "source_method": t.source_method,
-            })
+            out.append(
+                {
+                    "id": t.id,
+                    "text": t.text,
+                    "author": t.author,
+                    "author_handle": t.author_handle,
+                    "likes": t.likes,
+                    "retweets": t.retweets,
+                    "replies": t.replies,
+                    "views": t.views,
+                    "media_urls": t.media_urls,
+                    "source_method": t.source_method,
+                }
+            )
         print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
         print(f"Found {len(tweets)} tweets for: {query}\n")
@@ -440,11 +438,10 @@ def _handle_search(args):
 
 
 def _main_basescan():
-    from .screenshot import scrape_basescan_address, PlaywrightNotAvailable
+    from .screenshot import PlaywrightNotAvailable, scrape_basescan_address
 
     parser = argparse.ArgumentParser(
-        prog="scraperx basescan",
-        description="Scrape Basescan address info via headless browser"
+        prog="scraperx basescan", description="Scrape Basescan address info via headless browser"
     )
     parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "basescan"
     parser.add_argument("address", help="Ethereum address (0x...)")
@@ -496,11 +493,10 @@ def _main_basescan():
 
 
 def _main_dexscreener():
-    from .screenshot import scrape_dexscreener_token, PlaywrightNotAvailable
+    from .screenshot import PlaywrightNotAvailable, scrape_dexscreener_token
 
     parser = argparse.ArgumentParser(
-        prog="scraperx dexscreener",
-        description="Scrape DexScreener token info on Base chain via headless browser"
+        prog="scraperx dexscreener", description="Scrape DexScreener token info on Base chain via headless browser"
     )
     parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "dexscreener"
     parser.add_argument("address", help="Token contract address (0x...)")
@@ -559,7 +555,7 @@ def _main_dexscreener():
 
 
 def _main_screenshot():
-    from .screenshot import screenshot_url, PlaywrightNotAvailable
+    from .screenshot import PlaywrightNotAvailable, screenshot_url
 
     parser = argparse.ArgumentParser(
         prog="scraperx screenshot",

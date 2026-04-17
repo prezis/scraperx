@@ -1,22 +1,20 @@
 """Tests for scraperx.impersonation module."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from scraperx.impersonation import (
     ImpersonationCheck,
+    _avatar_urls_match,
+    _detect_scam_content,
     check_impersonation,
     handle_similarity,
     name_similarity,
-    _avatar_urls_match,
-    _detect_scam_content,
-    _normalize_handle,
 )
-
 
 # ---------------------------------------------------------------------------
 # handle_similarity
 # ---------------------------------------------------------------------------
+
 
 class TestHandleSimilarity:
     def test_identical(self):
@@ -62,6 +60,7 @@ class TestHandleSimilarity:
 # name_similarity
 # ---------------------------------------------------------------------------
 
+
 class TestNameSimilarity:
     def test_identical(self):
         assert name_similarity("Elon Musk", "Elon Musk") == 1.0
@@ -84,6 +83,7 @@ class TestNameSimilarity:
 # ---------------------------------------------------------------------------
 # Avatar URL matching
 # ---------------------------------------------------------------------------
+
 
 class TestAvatarMatch:
     def test_exact_match(self):
@@ -109,6 +109,7 @@ class TestAvatarMatch:
 # Scam content detection
 # ---------------------------------------------------------------------------
 
+
 class TestScamContent:
     def test_clean_text(self):
         signals = _detect_scam_content("Just discussing the latest tech news")
@@ -123,15 +124,11 @@ class TestScamContent:
         assert any("scam phrase" in s for s in signals)
 
     def test_wallet_address_eth(self):
-        signals = _detect_scam_content(
-            "Send to 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
-        )
+        signals = _detect_scam_content("Send to 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
         assert any("wallet address" in s for s in signals)
 
     def test_wallet_address_btc(self):
-        signals = _detect_scam_content(
-            "Send to bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
-        )
+        signals = _detect_scam_content("Send to bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
         assert any("wallet address" in s for s in signals)
 
     def test_shortened_url(self):
@@ -139,9 +136,7 @@ class TestScamContent:
         assert any("shortened" in s for s in signals)
 
     def test_emoji_spam(self):
-        signals = _detect_scam_content(
-            "\U0001F525\U0001F680\U0001F4B0\U0001F525\U0001F680 Amazing opportunity!"
-        )
+        signals = _detect_scam_content("\U0001f525\U0001f680\U0001f4b0\U0001f525\U0001f680 Amazing opportunity!")
         assert any("emoji" in s for s in signals)
 
     def test_empty_text(self):
@@ -151,6 +146,7 @@ class TestScamContent:
 # ---------------------------------------------------------------------------
 # Full impersonation check
 # ---------------------------------------------------------------------------
+
 
 class TestCheckImpersonation:
     """Integration tests for the main check_impersonation function."""

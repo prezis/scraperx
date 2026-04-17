@@ -10,6 +10,7 @@ For now, import them directly to avoid blocking this work.
 
 API mirrors YouTubeScraper: get_metadata(url), get_transcript(url, force_whisper=, max_duration_minutes=, referer=)
 """
+
 from __future__ import annotations
 
 import json
@@ -19,7 +20,6 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
-from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote_plus, urlparse
 from urllib.request import Request, urlopen
@@ -35,14 +35,14 @@ VIMEO_URL_RE = re.compile(
 VIMEO_HOST_ALLOWLIST = {"vimeo.com", "www.vimeo.com", "player.vimeo.com"}
 
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
 
 @dataclass
 class VimeoResult:
     """Result of Vimeo transcription. Mirrors YouTubeResult shape for cross-provider use."""
+
     provider: str = "vimeo"
     video_id: str = ""
     title: str = ""
@@ -52,12 +52,12 @@ class VimeoResult:
     transcript: str = ""
     transcript_method: str = ""  # "text_tracks" | "whisper_faster" | "whisper_cli"
     text_tracks_language: str = ""
-    source_page_url: Optional[str] = None
-    referer: Optional[str] = None
+    source_page_url: str | None = None
+    referer: str | None = None
     raw_config: dict = field(default_factory=dict, repr=False)
 
 
-def parse_vimeo_url(url: str) -> tuple[str, Optional[str]]:
+def parse_vimeo_url(url: str) -> tuple[str, str | None]:
     """Extract (video_id, optional_unlisted_hash) from any Vimeo URL variant."""
     m = VIMEO_URL_RE.search(url)
     if not m:
@@ -65,7 +65,7 @@ def parse_vimeo_url(url: str) -> tuple[str, Optional[str]]:
     return m.group("id"), m.group("hash")
 
 
-def _http_get(url: str, timeout: int = 15, referer: Optional[str] = None) -> bytes:
+def _http_get(url: str, timeout: int = 15, referer: str | None = None) -> bytes:
     """Stdlib GET with optional Referer (required for embed-domain-locked videos)."""
     headers = {
         "User-Agent": USER_AGENT,
@@ -78,7 +78,7 @@ def _http_get(url: str, timeout: int = 15, referer: Optional[str] = None) -> byt
         return resp.read()
 
 
-def _http_get_json(url: str, timeout: int = 15, referer: Optional[str] = None) -> dict:
+def _http_get_json(url: str, timeout: int = 15, referer: str | None = None) -> dict:
     body = _http_get(url, timeout=timeout, referer=referer).decode("utf-8", errors="replace")
     return json.loads(body)
 
@@ -97,7 +97,7 @@ def _fetch_oembed(url: str, timeout: int = 15) -> dict:
     return _http_get_json(endpoint, timeout=timeout)
 
 
-def _fetch_player_config(video_id: str, timeout: int = 15, referer: Optional[str] = None) -> dict:
+def _fetch_player_config(video_id: str, timeout: int = 15, referer: str | None = None) -> dict:
     """Fetch unauthenticated player config JSON — the goldmine for text_tracks.
 
     Endpoint: https://player.vimeo.com/video/{id}/config
@@ -115,7 +115,7 @@ def _parse_duration(raw_cfg: dict) -> float:
         return 0.0
 
 
-def _select_text_track(raw_cfg: dict, preferred_lang: str = "en") -> Optional[dict]:
+def _select_text_track(raw_cfg: dict, preferred_lang: str = "en") -> dict | None:
     """Pick best text_track from player config. Prefers English, accepts any."""
     tracks = raw_cfg.get("request", {}).get("text_tracks") or []
     if not isinstance(tracks, list):
@@ -134,19 +134,22 @@ def _select_text_track(raw_cfg: dict, preferred_lang: str = "en") -> Optional[di
     return None
 
 
-def _download_vtt(track_url: str, timeout: int = 15, referer: Optional[str] = None) -> str:
+def _download_vtt(track_url: str, timeout: int = 15, referer: str | None = None) -> str:
     return _http_get(track_url, timeout=timeout, referer=referer).decode("utf-8", errors="replace")
 
 
-def _ytdlp_download_audio(video_url: str, out_dir: str, referer: Optional[str] = None, timeout: int = 600) -> Optional[str]:
+def _ytdlp_download_audio(video_url: str, out_dir: str, referer: str | None = None, timeout: int = 600) -> str | None:
     """Use yt-dlp to download audio-only from Vimeo. Returns path to audio file or None."""
     out_tpl = os.path.join(out_dir, "%(id)s.%(ext)s")
     cmd = [
         "yt-dlp",
-        "-f", "bestaudio/best",
+        "-f",
+        "bestaudio/best",
         "--extract-audio",
-        "--audio-format", "mp3",
-        "-o", out_tpl,
+        "--audio-format",
+        "mp3",
+        "-o",
+        out_tpl,
         "--quiet",
     ]
     if referer:
@@ -181,7 +184,7 @@ class VimeoScraper:
     def __init__(self):
         pass
 
-    def get_metadata(self, url: str, referer: Optional[str] = None) -> dict:
+    def get_metadata(self, url: str, referer: str | None = None) -> dict:
         """Return metadata dict for a Vimeo video.
 
         Tries oEmbed first (lightweight, includes iframe HTML). Falls back to
@@ -253,7 +256,7 @@ class VimeoScraper:
         url: str,
         force_whisper: bool = False,
         max_duration_minutes: int = 120,
-        referer: Optional[str] = None,
+        referer: str | None = None,
     ) -> VimeoResult:
         """Mirror YouTubeScraper.get_transcript() API."""
         if not _is_vimeo_url(url):
@@ -287,8 +290,12 @@ class VimeoScraper:
         )
 
         if duration > max_duration_minutes * 60:
-            logger.warning("Vimeo %s duration %.0fs exceeds cap %dmin — proceeding anyway",
-                           video_id, duration, max_duration_minutes)
+            logger.warning(
+                "Vimeo %s duration %.0fs exceeds cap %dmin — proceeding anyway",
+                video_id,
+                duration,
+                max_duration_minutes,
+            )
 
         # --- Stage 1: text_tracks if available and not forced to whisper ---
         if not force_whisper:
@@ -298,6 +305,7 @@ class VimeoScraper:
                     vtt_content = _download_vtt(track["url"], referer=referer)
                     # Import _parse_vtt lazily to avoid circular imports
                     from scraperx.youtube_scraper import _parse_vtt
+
                     transcript_text = _parse_vtt(vtt_content)
                     if transcript_text.strip():
                         result.transcript = transcript_text

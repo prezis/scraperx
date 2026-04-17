@@ -8,12 +8,13 @@ Detects scammers who impersonate popular accounts by:
 
 No external dependencies — uses only stdlib (difflib, re, dataclasses).
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from scraperx.avatar_matcher import AvatarMatcher
@@ -23,11 +24,13 @@ if TYPE_CHECKING:
 # Data model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ImpersonationCheck:
     """Result of an impersonation check on a single tweet/reply."""
+
     is_suspect: bool
-    confidence: float          # 0.0–1.0
+    confidence: float  # 0.0–1.0
     reasons: list[str] = field(default_factory=list)
     handle_similarity: float = 0.0
     name_similarity: float = 0.0
@@ -113,6 +116,7 @@ def name_similarity(a: str, b: str) -> float:
 # Avatar URL comparison
 # ---------------------------------------------------------------------------
 
+
 def _avatar_urls_match(url_a: str, url_b: str) -> bool:
     """
     Check whether two avatar URLs point to the same image.
@@ -160,16 +164,24 @@ _SCAM_PHRASES: list[re.Pattern[str]] = [
 # Wallet address patterns
 _WALLET_RE = re.compile(
     r"(?:"
-    r"0x[0-9a-fA-F]{40}"          # Ethereum
+    r"0x[0-9a-fA-F]{40}"  # Ethereum
     r"|bc1[a-zA-HJ-NP-Z0-9]{25,39}"  # Bitcoin bech32
-    r"|[1-9A-HJ-NP-Za-km-z]{32,44}"   # Solana / Base58
+    r"|[1-9A-HJ-NP-Za-km-z]{32,44}"  # Solana / Base58
     r")"
 )
 
 # Known scam/shortener domains
 _SCAM_DOMAINS: set[str] = {
-    "bit.ly", "tinyurl.com", "t.co", "rb.gy", "cutt.ly",
-    "is.gd", "v.gd", "short.io", "ow.ly", "buff.ly",
+    "bit.ly",
+    "tinyurl.com",
+    "t.co",
+    "rb.gy",
+    "cutt.ly",
+    "is.gd",
+    "v.gd",
+    "short.io",
+    "ow.ly",
+    "buff.ly",
 }
 
 _URL_RE = re.compile(r"https?://([^\s/]+)")
@@ -214,6 +226,7 @@ def _detect_scam_content(text: str) -> list[str]:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+
 def check_impersonation(
     tweet_author_handle: str,
     tweet_author_name: str,
@@ -223,7 +236,7 @@ def check_impersonation(
     real_author_name: str,
     real_author_avatar: str,
     confidence_threshold: float = 0.6,
-    avatar_matcher: Optional["AvatarMatcher"] = None,
+    avatar_matcher: AvatarMatcher | None = None,
 ) -> ImpersonationCheck:
     """
     Check whether a reply tweet is from an impersonator of the real author.
@@ -261,19 +274,13 @@ def check_impersonation(
     # --- Handle similarity ---
     h_sim = handle_similarity(tweet_author_handle, real_author_handle)
     if h_sim >= 0.75:
-        reasons.append(
-            f"handle typosquat: @{tweet_author_handle} vs @{real_author_handle} "
-            f"(similarity {h_sim:.0%})"
-        )
+        reasons.append(f"handle typosquat: @{tweet_author_handle} vs @{real_author_handle} (similarity {h_sim:.0%})")
         identity_scores.append(h_sim)
 
     # --- Display name similarity ---
     n_sim = name_similarity(tweet_author_name, real_author_name)
     if n_sim >= 0.80:
-        reasons.append(
-            f"display name match: \"{tweet_author_name}\" vs \"{real_author_name}\" "
-            f"(similarity {n_sim:.0%})"
-        )
+        reasons.append(f'display name match: "{tweet_author_name}" vs "{real_author_name}" (similarity {n_sim:.0%})')
         identity_scores.append(n_sim * 0.8)  # name alone is weaker signal
 
     # --- Avatar match ---

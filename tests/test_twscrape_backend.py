@@ -1,18 +1,19 @@
 """Tests for twscrape_backend — fully mocked, does NOT require twscrape installed."""
+
 from __future__ import annotations
 
 import sys
 import types
 from unittest import mock
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers: create a fake twscrape module so we can import twscrape_backend
 # regardless of whether twscrape is actually installed.
 # ---------------------------------------------------------------------------
+
 
 def _make_fake_twscrape_module():
     """Create a minimal fake twscrape module with API and gather."""
@@ -28,11 +29,11 @@ def _patch_twscrape_import():
     fake = _make_fake_twscrape_module()
     with mock.patch.dict(sys.modules, {"twscrape": fake}):
         # Force reimport of the backend module with our fake
-        import importlib
         if "scraperx.twscrape_backend" in sys.modules:
             del sys.modules["scraperx.twscrape_backend"]
         # Patch the TWSCRAPE_AVAILABLE flag after import
         import scraperx.twscrape_backend as backend_mod
+
         backend_mod.TWSCRAPE_AVAILABLE = True
         backend_mod.API = fake.API
         backend_mod.gather = fake.gather
@@ -42,6 +43,7 @@ def _patch_twscrape_import():
 # ---------------------------------------------------------------------------
 # Tests: has_twscrape()
 # ---------------------------------------------------------------------------
+
 
 class TestHasTwscrape:
     def test_returns_true_when_available(self, _patch_twscrape_import):
@@ -58,6 +60,7 @@ class TestHasTwscrape:
 # ---------------------------------------------------------------------------
 # Tests: _tw_to_tweet conversion
 # ---------------------------------------------------------------------------
+
 
 class TestTwToTweet:
     def test_basic_conversion(self, _patch_twscrape_import):
@@ -126,13 +129,15 @@ class TestTwToTweet:
         tw.viewCount = 0
         tw.media = {
             "photos": [],
-            "videos": [{
-                "variants": [
-                    {"contentType": "video/mp4", "bitrate": 256000, "url": "https://video.twimg.com/low.mp4"},
-                    {"contentType": "video/mp4", "bitrate": 2176000, "url": "https://video.twimg.com/high.mp4"},
-                    {"contentType": "application/x-mpegURL", "url": "https://video.twimg.com/playlist.m3u8"},
-                ],
-            }],
+            "videos": [
+                {
+                    "variants": [
+                        {"contentType": "video/mp4", "bitrate": 256000, "url": "https://video.twimg.com/low.mp4"},
+                        {"contentType": "video/mp4", "bitrate": 2176000, "url": "https://video.twimg.com/high.mp4"},
+                        {"contentType": "application/x-mpegURL", "url": "https://video.twimg.com/playlist.m3u8"},
+                    ],
+                }
+            ],
         }
 
         tweet = mod._tw_to_tweet(tw)
@@ -181,6 +186,7 @@ class TestTwToTweet:
 # ---------------------------------------------------------------------------
 # Tests: TwscrapeBackend
 # ---------------------------------------------------------------------------
+
 
 class TestTwscrapeBackend:
     def test_raises_import_error_when_not_available(self, _patch_twscrape_import):

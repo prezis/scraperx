@@ -16,6 +16,7 @@ Usage:
 Note: DDG rate-limits aggressively. Use sparingly (~1 search per minute).
 If DDG fails, falls back to curl subprocess with different TLS fingerprint.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -26,7 +27,6 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
 from urllib.parse import quote, unquote
 from urllib.request import Request, urlopen
 
@@ -35,22 +35,20 @@ from scraperx.scraper import Tweet, XScraper
 logger = logging.getLogger(__name__)
 
 # Match x.com/user/status/ID in search result URLs
-_TWEET_STATUS_RE = re.compile(
-    r"https?://(?:twitter|x)\.com/([A-Za-z0-9_]+)/status/(\d+)"
-)
+_TWEET_STATUS_RE = re.compile(r"https?://(?:twitter|x)\.com/([A-Za-z0-9_]+)/status/(\d+)")
 
 # Cache directory
 _CACHE_DIR = Path(os.environ.get("SCRAPERX_CACHE", "/tmp/scraperx_cache"))
 
 
-def _cache_key(query: str, time_filter: Optional[str]) -> str:
+def _cache_key(query: str, time_filter: str | None) -> str:
     """Generate cache filename from query."""
     raw = f"{query}|{time_filter or ''}"
     h = hashlib.md5(raw.encode()).hexdigest()[:12]
     return h
 
 
-def _get_cached(query: str, time_filter: Optional[str], max_age: int = 3600) -> Optional[list[str]]:
+def _get_cached(query: str, time_filter: str | None, max_age: int = 3600) -> list[str] | None:
     """Return cached URLs if fresh enough."""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = _CACHE_DIR / f"search_{_cache_key(query, time_filter)}.json"
@@ -65,7 +63,7 @@ def _get_cached(query: str, time_filter: Optional[str], max_age: int = 3600) -> 
         return None
 
 
-def _set_cache(query: str, time_filter: Optional[str], urls: list[str]) -> None:
+def _set_cache(query: str, time_filter: str | None, urls: list[str]) -> None:
     """Cache search result URLs."""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = _CACHE_DIR / f"search_{_cache_key(query, time_filter)}.json"
@@ -101,24 +99,27 @@ def _extract_tweet_urls(html: str) -> list[str]:
     return tweet_urls
 
 
-def _ddg_search_urllib(query: str, time_filter: Optional[str] = None) -> str:
+def _ddg_search_urllib(query: str, time_filter: str | None = None) -> str:
     """Fetch DDG HTML via urllib. Expects query already has site: prefix."""
     params = f"q={quote(query)}"
     if time_filter and time_filter in ("d", "w", "m", "y"):
         params += f"&df={time_filter}"
 
     url = f"https://html.duckduckgo.com/html/?{params}"
-    req = Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
-        "Accept-Language": "en-US,en;q=0.9",
-    })
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
     with urlopen(req, timeout=15) as resp:
         return resp.read().decode("utf-8", errors="replace")
 
 
-def _ddg_search_curl(query: str, time_filter: Optional[str] = None) -> str:
+def _ddg_search_curl(query: str, time_filter: str | None = None) -> str:
     """Fetch DDG HTML via curl subprocess (different TLS fingerprint).
     Expects query already has site: prefix."""
     params = f"q={quote(query)}"
@@ -128,21 +129,30 @@ def _ddg_search_curl(query: str, time_filter: Optional[str] = None) -> str:
     url = f"https://html.duckduckgo.com/html/?{params}"
     result = subprocess.run(
         [
-            "curl", "-s", "-L", "--max-time", "15",
-            "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
-            "-H", "Accept: text/html",
-            "-H", "Accept-Language: en-US,en;q=0.9",
+            "curl",
+            "-s",
+            "-L",
+            "--max-time",
+            "15",
+            "-H",
+            "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+            "-H",
+            "Accept: text/html",
+            "-H",
+            "Accept-Language: en-US,en;q=0.9",
             url,
         ],
-        capture_output=True, text=True, timeout=20,
+        capture_output=True,
+        text=True,
+        timeout=20,
     )
     if result.returncode != 0:
         raise RuntimeError(f"curl failed: {result.stderr[:200]}")
     return result.stdout
 
 
-def _ddg_search(query: str, max_results: int = 30, time_filter: Optional[str] = None) -> list[str]:
+def _ddg_search(query: str, max_results: int = 30, time_filter: str | None = None) -> list[str]:
     """Search DuckDuckGo for tweet URLs with fallback methods.
 
     Returns list of unique x.com/user/status/ID URLs.
@@ -190,7 +200,7 @@ def _ddg_search(query: str, max_results: int = 30, time_filter: Optional[str] = 
 def search_tweets(
     query: str,
     limit: int = 10,
-    time_filter: Optional[str] = None,
+    time_filter: str | None = None,
     delay: float = 0.3,
     enrich: bool = True,
     cache_hours: float = 1.0,
@@ -222,13 +232,15 @@ def search_tweets(
         for url in urls[:limit]:
             m = _TWEET_STATUS_RE.search(url)
             if m:
-                tweets.append(Tweet(
-                    id=m.group(2),
-                    text="",
-                    author="",
-                    author_handle=m.group(1),
-                    source_method="ddg_stub",
-                ))
+                tweets.append(
+                    Tweet(
+                        id=m.group(2),
+                        text="",
+                        author="",
+                        author_handle=m.group(1),
+                        source_method="ddg_stub",
+                    )
+                )
         return tweets
 
     scraper = XScraper()

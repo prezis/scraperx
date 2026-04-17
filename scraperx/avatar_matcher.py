@@ -13,6 +13,7 @@ Its `check_impersonation()` returns `(is_match, best_hamming, matched_handle)`;
 a cross-handle match (low distance against a DIFFERENT handle) is a strong
 impersonation signal.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +21,6 @@ import logging
 import os
 import sqlite3
 import time
-from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -31,8 +31,10 @@ logger = logging.getLogger(__name__)
 IMAGEHASH_AVAILABLE = False
 try:
     import io
+
+    import imagehash
     from PIL import Image
-    import imagehash  # noqa: F401
+
     IMAGEHASH_AVAILABLE = True
 except ImportError:
     logger.info("imagehash/PIL not installed — AvatarMatcher falls back to SHA256 + URL compare")
@@ -80,7 +82,7 @@ def _url_is_allowed(url: str) -> bool:
         return False
 
 
-def _fetch_image_bytes(url: str, timeout: int = 10) -> Optional[bytes]:
+def _fetch_image_bytes(url: str, timeout: int = 10) -> bytes | None:
     """SSRF-safe fetch: allowlisted host, 2MB cap, image/* content-type check."""
     if not _url_is_allowed(url):
         logger.debug("avatar fetch blocked: host not in allowlist: %s", url)
@@ -102,7 +104,7 @@ def _fetch_image_bytes(url: str, timeout: int = 10) -> Optional[bytes]:
         return None
 
 
-def _compute_phash(image_bytes: bytes) -> Optional[str]:
+def _compute_phash(image_bytes: bytes) -> str | None:
     """Returns 16-char hex string (8x8 pHash = 64 bits) or None if failed."""
     if not IMAGEHASH_AVAILABLE:
         return None
@@ -139,7 +141,7 @@ class AvatarMatcher:
       - compare() returns 0 on exact byte match, 64 otherwise (no gradient)
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._conn = sqlite3.connect(self.db_path)
@@ -152,7 +154,7 @@ class AvatarMatcher:
         except Exception:
             pass
 
-    def fetch_and_hash(self, url: str) -> Optional[str]:
+    def fetch_and_hash(self, url: str) -> str | None:
         """Returns cached or freshly-computed phash (or content SHA256 fallback)."""
         if not url:
             return None
@@ -213,7 +215,7 @@ class VerifiedAvatarRegistry:
     compares against any of the last 5 known-good hashes.
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._conn = sqlite3.connect(self.db_path)
@@ -226,7 +228,7 @@ class VerifiedAvatarRegistry:
         except Exception:
             pass
 
-    def record_avatar(self, handle: str, url: str, matcher: "AvatarMatcher") -> None:
+    def record_avatar(self, handle: str, url: str, matcher: AvatarMatcher) -> None:
         """Hash the avatar and store under handle. Trims to rolling window."""
         if not handle or not url:
             return
@@ -269,9 +271,9 @@ class VerifiedAvatarRegistry:
         self,
         claimed_handle: str,
         avatar_url: str,
-        matcher: "AvatarMatcher",
+        matcher: AvatarMatcher,
         threshold: int = DEFAULT_HAMMING_THRESHOLD,
-    ) -> tuple[bool, int, Optional[str]]:
+    ) -> tuple[bool, int, str | None]:
         """Returns (is_match, best_hamming_distance, matched_handle).
 
         is_match=True means the avatar matches a known-good hash for THAT SAME handle.
@@ -310,7 +312,7 @@ class VerifiedAvatarRegistry:
             (handle_lower,),
         )
         best_cross_dist = 64
-        matched_other: Optional[str] = None
+        matched_other: str | None = None
         for row in cur.fetchall():
             if IMAGEHASH_AVAILABLE:
                 d = _hamming_hex(suspect_phash, row["phash"])

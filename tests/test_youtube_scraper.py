@@ -1,17 +1,19 @@
 """Tests for YouTube scraper."""
+
 import json
 import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from scraperx.youtube_scraper import (
-    YouTubeScraper,
     YouTubeResult,
+    YouTubeScraper,
     parse_youtube_url,
 )
 
-
 # --- URL parsing ---
+
 
 class TestParseYoutubeUrl:
     def test_standard(self):
@@ -39,6 +41,7 @@ SAMPLE_METADATA = {
     "uploader": "Test Uploader",
     "duration": 300,
 }
+
 
 class TestGetMetadata:
     @patch("scraperx.youtube_scraper.subprocess.run")
@@ -82,6 +85,7 @@ This is a <b>test</b> transcript
 With duplicate lines
 """
 
+
 class TestParseVtt:
     def test_basic(self, tmp_path):
         vtt_file = tmp_path / "test.vtt"
@@ -104,16 +108,19 @@ class TestParseVtt:
 
 # --- Duration guard ---
 
+
 class TestDurationGuard:
     @patch("scraperx.youtube_scraper.subprocess.run")
     def test_too_long(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=json.dumps({
-                "title": "Long Video",
-                "channel": "Test",
-                "duration": 7201,  # > 120 min default
-            }),
+            stdout=json.dumps(
+                {
+                    "title": "Long Video",
+                    "channel": "Test",
+                    "duration": 7201,  # > 120 min default
+                }
+            ),
         )
         scraper = YouTubeScraper(output_dir="/tmp/test_transcripts")
         with pytest.raises(ValueError, match="Video too long"):
@@ -121,6 +128,7 @@ class TestDurationGuard:
 
 
 # --- Auto-captions ---
+
 
 class TestAutoCaption:
     @patch("scraperx.youtube_scraper.subprocess.run")
@@ -131,6 +139,7 @@ class TestAutoCaption:
             returncode=0,
             stdout=json.dumps({"title": "Test", "channel": "Ch", "duration": 60}),
         )
+
         # Second call: write-auto-sub (creates a .vtt file in tmpdir)
         def side_effect_sub(cmd, **kwargs):
             # Find the output dir from -o flag
@@ -147,6 +156,7 @@ class TestAutoCaption:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         mock_run.side_effect = [meta_result, side_effect_sub]
+
         # Second call needs to create the VTT file - use side_effect
         def run_side_effect(cmd, **kwargs):
             if "--dump-json" in cmd:
@@ -163,6 +173,7 @@ class TestAutoCaption:
 
 # --- YouTubeResult dataclass ---
 
+
 class TestYouTubeResult:
     def test_defaults(self):
         r = YouTubeResult(video_id="abc", title="T", channel="C")
@@ -174,36 +185,43 @@ class TestYouTubeResult:
 
 # --- GPU Detection Tests ---
 
+
 class TestWhisperBackendDetection:
     """Test whisper backend auto-detection."""
 
     def test_detect_faster_whisper_when_installed(self):
         """faster-whisper is installed on this machine."""
         from scraperx.youtube_scraper import _detect_whisper_backend
+
         result = _detect_whisper_backend()
         # Should detect faster-whisper since it's installed
         assert result in ("faster-whisper", "whisper-cli", "none")
 
     def test_detect_gpu_returns_tuple(self):
         from scraperx.youtube_scraper import _detect_gpu_for_whisper
+
         device, compute_type = _detect_gpu_for_whisper()
         assert device in ("cuda", "auto", "cpu")
         assert compute_type in ("float16", "int8")
 
     def test_scraper_init_sets_backend(self):
         from scraperx.youtube_scraper import YouTubeScraper
+
         scraper = YouTubeScraper()
         assert scraper.whisper_backend in ("faster-whisper", "whisper-cli", "none")
         assert scraper._device in ("cuda", "auto", "cpu")
 
     def test_scraper_explicit_backend(self):
         from scraperx.youtube_scraper import YouTubeScraper
+
         scraper = YouTubeScraper(whisper_backend="whisper-cli")
         assert scraper.whisper_backend == "whisper-cli"
 
     def test_scraper_no_backend_raises_on_transcribe(self, tmp_path):
         from scraperx.youtube_scraper import YouTubeScraper
+
         scraper = YouTubeScraper(whisper_backend="none")
         import pytest
+
         with pytest.raises(RuntimeError, match="No whisper backend"):
             scraper._whisper_transcribe(str(tmp_path / "fake.mp3"))

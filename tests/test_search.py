@@ -1,21 +1,15 @@
 """Tests for scraperx.search module."""
-import json
-import hashlib
-from pathlib import Path
+
 from unittest.mock import patch
 
-import pytest
-
+from scraperx.scraper import Tweet
 from scraperx.search import (
-    _extract_tweet_urls,
-    _ddg_search,
     _cache_key,
+    _extract_tweet_urls,
     _get_cached,
     _set_cache,
     search_tweets,
 )
-from scraperx.scraper import Tweet
-
 
 # --- HTML extraction tests ---
 
@@ -42,7 +36,7 @@ def test_extract_tweet_urls_direct_hrefs():
 
 
 def test_extract_tweet_urls_twitter_domain():
-    html = 'uddg=https%3A%2F%2Ftwitter.com%2FDave%2Fstatus%2F444444&rut=x'
+    html = "uddg=https%3A%2F%2Ftwitter.com%2FDave%2Fstatus%2F444444&rut=x"
     urls = _extract_tweet_urls(html)
     assert len(urls) == 1
     assert "444444" in urls[0]
@@ -54,6 +48,7 @@ def test_extract_tweet_urls_empty():
 
 
 # --- Cache tests ---
+
 
 def test_cache_roundtrip(tmp_path):
     with patch("scraperx.search._CACHE_DIR", tmp_path):
@@ -84,6 +79,7 @@ def test_cache_key_varies_with_time_filter():
 
 
 # --- search_tweets tests (mocked DDG) ---
+
 
 def test_search_tweets_enrich(tmp_path):
     cached_urls = [
@@ -153,10 +149,8 @@ def test_search_tweets_error_handling(tmp_path):
             # First call fails, second succeeds
             instance.get_tweet.side_effect = [
                 RuntimeError("API error"),
-                Tweet(id="2", text="ok", author="B", author_handle="B",
-                      source_method="fxtwitter"),
-                Tweet(id="3", text="ok2", author="C", author_handle="C",
-                      source_method="fxtwitter"),
+                Tweet(id="2", text="ok", author="B", author_handle="B", source_method="fxtwitter"),
+                Tweet(id="3", text="ok2", author="C", author_handle="C", source_method="fxtwitter"),
             ]
 
             results = search_tweets("errors", limit=2, delay=0)

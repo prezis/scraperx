@@ -13,6 +13,7 @@ Usage:
     tweet = scraper.get_tweet("https://x.com/user/status/123456")
     print(tweet.text, tweet.author, tweet.media_urls)
 """
+
 from __future__ import annotations
 
 import json
@@ -20,10 +21,8 @@ import logging
 import re
 import subprocess
 from dataclasses import dataclass, field
-from typing import Optional
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +34,14 @@ TWEET_URL_RE = re.compile(
 
 class TweetNotFoundError(RuntimeError):
     """Raised when a tweet does not exist (deleted, private, or suspended)."""
+
     pass
 
 
 @dataclass
 class Tweet:
     """Parsed tweet data."""
+
     id: str
     text: str
     author: str
@@ -52,37 +53,37 @@ class Tweet:
     author_avatar: str = ""
     author_id: str = ""
     media_urls: list[str] = field(default_factory=list)
-    article_title: Optional[str] = None
-    article_text: Optional[str] = None
-    quoted_tweet: Optional['Tweet'] = None
+    article_title: str | None = None
+    article_text: str | None = None
+    quoted_tweet: Tweet | None = None
     # Reply/thread context
     is_reply: bool = False
-    in_reply_to_tweet_id: Optional[str] = None
-    in_reply_to_handle: Optional[str] = None
-    in_reply_to_author_id: Optional[str] = None
+    in_reply_to_tweet_id: str | None = None
+    in_reply_to_handle: str | None = None
+    in_reply_to_author_id: str | None = None
     is_quote: bool = False
-    conversation_id: Optional[str] = None
+    conversation_id: str | None = None
 
     # Temporal + locale
-    created_at: Optional[str] = None
-    created_timestamp: Optional[int] = None
-    lang: Optional[str] = None
-    possibly_sensitive: Optional[bool] = None
-    source_client: Optional[str] = None
+    created_at: str | None = None
+    created_timestamp: int | None = None
+    lang: str | None = None
+    possibly_sensitive: bool | None = None
+    source_client: str | None = None
 
     # Note / community-note flags
-    is_note_tweet: Optional[bool] = None
-    is_community_note_marked: Optional[bool] = None
+    is_note_tweet: bool | None = None
+    is_community_note_marked: bool | None = None
 
     # Author trust signals
-    author_verified: Optional[bool] = None
-    author_verified_type: Optional[str] = None       # "blue"|"business"|"government"|"legacy"
-    author_affiliation: Optional[dict] = None
-    author_followers: Optional[int] = None
-    author_following: Optional[int] = None
-    author_joined: Optional[str] = None              # RFC 2822 string
-    author_protected: Optional[bool] = None
-    is_pinned: Optional[bool] = None
+    author_verified: bool | None = None
+    author_verified_type: str | None = None  # "blue"|"business"|"government"|"legacy"
+    author_affiliation: dict | None = None
+    author_followers: int | None = None
+    author_following: int | None = None
+    author_joined: str | None = None  # RFC 2822 string
+    author_protected: bool | None = None
+    is_pinned: bool | None = None
     source_method: str = ""
     raw: dict = field(default_factory=dict, repr=False)
 
@@ -95,11 +96,13 @@ def parse_tweet_url(url: str) -> tuple[str, str]:
     return m.group("user"), m.group("id")
 
 
-_ALLOWED_DOMAINS = frozenset({
-    "api.fxtwitter.com",
-    "api.vxtwitter.com",
-    "publish.twitter.com",
-})
+_ALLOWED_DOMAINS = frozenset(
+    {
+        "api.fxtwitter.com",
+        "api.vxtwitter.com",
+        "publish.twitter.com",
+    }
+)
 
 
 def _http_get_json(url: str, timeout: int = 15) -> dict:
@@ -107,24 +110,24 @@ def _http_get_json(url: str, timeout: int = 15) -> dict:
     host = urlparse(url).hostname or ""
     if host not in _ALLOWED_DOMAINS:
         raise ValueError(f"Domain not allowed: {host}")
-    req = Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (compatible; ScraperX/1.0)",
-        "Accept": "application/json",
-    })
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; ScraperX/1.0)",
+            "Accept": "application/json",
+        },
+    )
     with urlopen(req, timeout=timeout) as resp:
         body = resp.read().decode()
         content_type = resp.headers.get("Content-Type", "")
         if "html" in content_type and "json" not in content_type:
             raise ValueError(
-                f"Expected JSON but got HTML from {host} "
-                f"(tweet may not exist or API returned an error page)"
+                f"Expected JSON but got HTML from {host} (tweet may not exist or API returned an error page)"
             )
         try:
             return json.loads(body)
         except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Invalid JSON from {host}: {e} (first 200 chars: {body[:200]})"
-            ) from e
+            raise ValueError(f"Invalid JSON from {host}: {e} (first 200 chars: {body[:200]})") from e
 
 
 def _best_media_url(media_item: dict) -> str:
@@ -149,9 +152,7 @@ def _best_media_url(media_item: dict) -> str:
     # Photo: append :large for full resolution
     if url and "pbs.twimg.com" in url and not url.endswith(":large"):
         media_type = media_item.get("type", "")
-        if media_type in ("photo", "") and not any(
-            ext in url for ext in (".mp4", ".m3u8")
-        ):
+        if media_type in ("photo", "") and not any(ext in url for ext in (".mp4", ".m3u8")):
             url = url + ":large"
 
     return url
@@ -177,7 +178,7 @@ def _strip_html(html: str) -> str:
 _MAX_QUOTE_DEPTH = 3
 
 
-def _extract_article(obj: dict) -> tuple[Optional[str], Optional[str]]:
+def _extract_article(obj: dict) -> tuple[str | None, str | None]:
     """Extract article title and full text from a tweet or quote dict."""
     article = obj.get("article")
     if not article:
@@ -197,7 +198,7 @@ def _extract_article(obj: dict) -> tuple[Optional[str], Optional[str]]:
     return title, text
 
 
-def _parse_quoted_tweet(quote: dict, depth: int = 0) -> 'Tweet':
+def _parse_quoted_tweet(quote: dict, depth: int = 0) -> Tweet:
     """Parse a quoted tweet dict from FxTwitter into a Tweet, recursively."""
     media_urls: list[str] = []
     if quote.get("media") and quote["media"].get("all"):
@@ -239,7 +240,7 @@ def _parse_quoted_tweet(quote: dict, depth: int = 0) -> 'Tweet':
 class XScraper:
     """Multi-method X/Twitter scraper with automatic fallback."""
 
-    def __init__(self, *, timeout: int = 15, ytdlp_cookies: Optional[str] = None):
+    def __init__(self, *, timeout: int = 15, ytdlp_cookies: str | None = None):
         """
         Args:
             timeout: HTTP request timeout in seconds.
@@ -289,10 +290,7 @@ class XScraper:
                 f"Details: {'; '.join(errors)}"
             )
 
-        raise RuntimeError(
-            f"All scraping methods failed for tweet {tweet_id}:\n"
-            + "\n".join(errors)
-        )
+        raise RuntimeError(f"All scraping methods failed for tweet {tweet_id}:\n" + "\n".join(errors))
 
     # --- Method 1: FxTwitter API ---
 
@@ -381,6 +379,7 @@ class XScraper:
 
     def _via_ytdlp(self, user: str, tweet_id: str) -> Tweet:
         import shutil
+
         if not shutil.which("yt-dlp"):
             raise RuntimeError("yt-dlp is not installed (pip install yt-dlp)")
 
@@ -390,16 +389,14 @@ class XScraper:
         cmd.append(f"https://x.com/{user}/status/{tweet_id}")
 
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         except FileNotFoundError:
             raise RuntimeError("yt-dlp is not installed (pip install yt-dlp)")
         if result.returncode != 0:
             raise RuntimeError(f"yt-dlp exit {result.returncode}: {result.stderr[:200]}")
 
         # yt-dlp outputs one JSON per line for playlists; take first
-        first_line = result.stdout.split('\n', 1)[0]
+        first_line = result.stdout.split("\n", 1)[0]
         data = json.loads(first_line)
         return Tweet(
             id=tweet_id,
@@ -417,11 +414,7 @@ class XScraper:
 
     def _via_oembed(self, user: str, tweet_id: str) -> Tweet:
         """Use Twitter's official oembed endpoint. Ultra-reliable but text-only."""
-        url = (
-            f"https://publish.twitter.com/oembed"
-            f"?url=https://twitter.com/{user}/status/{tweet_id}"
-            f"&omit_script=true"
-        )
+        url = f"https://publish.twitter.com/oembed?url=https://twitter.com/{user}/status/{tweet_id}&omit_script=true"
         data = _http_get_json(url, self.timeout)
 
         text = _strip_html(data.get("html", ""))
@@ -439,7 +432,7 @@ class XScraper:
         )
 
 
-def _enrich_tweet_from_fxtwitter_raw(tweet: "Tweet", raw: dict) -> None:
+def _enrich_tweet_from_fxtwitter_raw(tweet: Tweet, raw: dict) -> None:
     """Fill new Tweet fields from a raw FxTwitter tweet dict.
 
     FxTwitter shape (reference: api.fxtwitter.com/{user}/status/{id}):
@@ -516,7 +509,7 @@ def _enrich_tweet_from_fxtwitter_raw(tweet: "Tweet", raw: dict) -> None:
     tweet.author_protected = author.get("protected")
 
 
-def _enrich_tweet_from_vxtwitter_raw(tweet: "Tweet", raw: dict) -> None:
+def _enrich_tweet_from_vxtwitter_raw(tweet: Tweet, raw: dict) -> None:
     """Fill new Tweet fields from a raw vxTwitter tweet dict.
 
     vxTwitter fields:

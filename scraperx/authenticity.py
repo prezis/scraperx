@@ -6,10 +6,11 @@ Integration notes:
 - Depends on Feature 1 Tweet enrichment (conversation_id, author_id, created_timestamp, in_reply_to_tweet_id fields must be populated)
 - Exported from __init__.py as ThreadAuthenticity + check_thread_authenticity
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from scraperx.thread import Thread
@@ -35,6 +36,7 @@ class ThreadAuthenticity:
     missing_fields: API fields we could not verify because the backend didn't return
     them (e.g., FxTwitter doesn't expose conversation_id — syndication does).
     """
+
     is_authentic: bool = False
     same_conversation: bool = True
     single_author: bool = True
@@ -46,7 +48,7 @@ class ThreadAuthenticity:
     reasons: list[str] = field(default_factory=list)
 
 
-def check_thread_authenticity(thread: "Thread") -> ThreadAuthenticity:
+def check_thread_authenticity(thread: Thread) -> ThreadAuthenticity:
     """Verify a Thread against the 4 structural authenticity properties.
 
     Trivial cases:
@@ -92,9 +94,7 @@ def check_thread_authenticity(thread: "Thread") -> ThreadAuthenticity:
         for t in tweets:
             if t.conversation_id != root_conv:
                 result.same_conversation = False
-                result.reasons.append(
-                    f"tweet {t.id} has conversation_id={t.conversation_id} but root is {root_conv}"
-                )
+                result.reasons.append(f"tweet {t.id} has conversation_id={t.conversation_id} but root is {root_conv}")
                 break
     else:
         result.same_conversation = False
@@ -106,9 +106,7 @@ def check_thread_authenticity(thread: "Thread") -> ThreadAuthenticity:
         for t in tweets:
             if t.author_id != root_author_id:
                 result.single_author = False
-                result.reasons.append(
-                    f"tweet {t.id} has author_id={t.author_id} but root is {root_author_id}"
-                )
+                result.reasons.append(f"tweet {t.id} has author_id={t.author_id} but root is {root_author_id}")
                 break
     else:
         # Fallback: check handle continuity (weaker signal, handles are mutable)
@@ -116,9 +114,7 @@ def check_thread_authenticity(thread: "Thread") -> ThreadAuthenticity:
         for t in tweets:
             if (t.author_handle or "").lower() != root_handle:
                 result.single_author = False
-                result.reasons.append(
-                    f"tweet {t.id} has author_handle={t.author_handle} but root is {root_handle}"
-                )
+                result.reasons.append(f"tweet {t.id} has author_handle={t.author_handle} but root is {root_handle}")
                 break
         if not root_author_id:
             result.reasons.append("author_id unavailable — falling back to handle comparison (weaker signal)")
@@ -161,17 +157,14 @@ def check_thread_authenticity(thread: "Thread") -> ThreadAuthenticity:
             # If t is NOT root, this is interpolation (parent should be in thread)
             if t.id != root.id:
                 result.no_interpolation = False
-                result.reasons.append(
-                    f"tweet {t.id} replies to {parent_id} which is not in thread"
-                )
+                result.reasons.append(f"tweet {t.id} replies to {parent_id} which is not in thread")
         else:
             parent = tweet_map[parent_id]
             # Parent author must match for self-thread continuity
             if root_author_id and getattr(parent, "author_id", None) and parent.author_id != t.author_id:
                 result.no_interpolation = False
                 result.reasons.append(
-                    f"tweet {t.id} replies to {parent_id} but authors differ "
-                    f"({t.author_id} vs {parent.author_id})"
+                    f"tweet {t.id} replies to {parent_id} but authors differ ({t.author_id} vs {parent.author_id})"
                 )
             parent_counts[parent_id] = parent_counts.get(parent_id, 0) + 1
 

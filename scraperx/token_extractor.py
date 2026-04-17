@@ -2,14 +2,13 @@
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class TokenMention:
-    symbol: str           # e.g. "SOL", "WIF", "BONK"
-    mention_type: str     # 'cashtag' ($SOL), 'text_match' (mentioned by name)
-    token_address: Optional[str] = None  # Solana mint address if known
+    symbol: str  # e.g. "SOL", "WIF", "BONK"
+    mention_type: str  # 'cashtag' ($SOL), 'text_match' (mentioned by name)
+    token_address: str | None = None  # Solana mint address if known
     confidence: float = 1.0  # 1.0 for cashtag, 0.7 for text match
 
 
@@ -41,13 +40,13 @@ def extract_token_mentions(text: str) -> list[TokenMention]:
     mentions = {}  # symbol -> TokenMention (dedup by symbol)
 
     # 1. Find $CASHTAGS
-    cashtags = re.findall(r'\$([A-Z]{2,10})\b', text.upper())
+    cashtags = re.findall(r"\$([A-Z]{2,10})\b", text.upper())
     for tag in cashtags:
         if tag in IGNORE_TOKENS:
             continue
         mentions[tag] = TokenMention(
             symbol=tag,
-            mention_type='cashtag',
+            mention_type="cashtag",
             token_address=KNOWN_TOKENS.get(tag),
             confidence=1.0,
         )
@@ -58,11 +57,11 @@ def extract_token_mentions(text: str) -> list[TokenMention]:
         if token in IGNORE_TOKENS or token in mentions:
             continue
         # Require word boundary match
-        pattern = r'\b' + re.escape(token) + r'\b'
+        pattern = r"\b" + re.escape(token) + r"\b"
         if re.search(pattern, text_upper):
             mentions[token] = TokenMention(
                 symbol=token,
-                mention_type='text_match',
+                mention_type="text_match",
                 token_address=address,
                 confidence=0.7,
             )

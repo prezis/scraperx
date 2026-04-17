@@ -1,21 +1,23 @@
 """Tests for blockchain explorer scraper."""
-from unittest.mock import patch, MagicMock, PropertyMock
+
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from scraperx.screenshot import (
-    scrape_basescan_address,
-    scrape_dexscreener_token,
+    ADDRESS_RE,
     BasescanAddress,
     DexScreenerToken,
     PlaywrightNotAvailable,
-    _validate_address,
     _parse_basescan_dom,
     _parse_dexscreener_dom,
-    ADDRESS_RE,
+    _validate_address,
+    scrape_basescan_address,
+    scrape_dexscreener_token,
 )
 
-
 # --- Address validation ---
+
 
 class TestValidateAddress:
     def test_valid_address(self):
@@ -57,6 +59,7 @@ class TestAddressRegex:
 
 # --- Playwright not available ---
 
+
 class TestPlaywrightNotAvailable:
     @patch("scraperx.screenshot._get_playwright", side_effect=PlaywrightNotAvailable("not installed"))
     def test_basescan_raises(self, mock_pw):
@@ -70,6 +73,7 @@ class TestPlaywrightNotAvailable:
 
 
 # --- Basescan DOM parsing ---
+
 
 def _make_mock_page(body_text="", elements=None):
     """Create a mock Playwright page with configurable DOM responses."""
@@ -193,6 +197,7 @@ class TestParseBasescanDom:
 
 # --- DexScreener DOM parsing ---
 
+
 class TestParseDexscreenerDom:
     def test_token_with_full_data(self):
         """Parse a token page with all data present."""
@@ -266,6 +271,7 @@ class TestParseDexscreenerDom:
 
 # --- Full scrape with mocked Playwright ---
 
+
 def _mock_playwright_context(parse_fn):
     """Create a full mock for sync_playwright context manager."""
     mock_page = MagicMock()
@@ -333,6 +339,7 @@ class TestScrapeDexscreenerIntegration:
 
 
 # --- Dataclass defaults ---
+
 
 class TestDataclassDefaults:
     def test_basescan_defaults(self):

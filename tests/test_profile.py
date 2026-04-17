@@ -1,14 +1,14 @@
 """Tests for X/Twitter profile scraper."""
+
 from unittest.mock import patch
+
 import pytest
 
 from scraperx.profile import (
     XProfile,
     get_profile,
     parse_profile_url,
-    PROFILE_URL_RE,
 )
-
 
 # --- Mock data ---
 
@@ -37,6 +37,7 @@ FXTWITTER_PROFILE_RESPONSE = {
 
 
 # --- Profile fetch ---
+
 
 class TestGetProfile:
     @patch("scraperx.profile._http_get_json")
@@ -104,6 +105,7 @@ class TestGetProfile:
 
 # --- URL parsing ---
 
+
 class TestParseProfileUrl:
     def test_x_com(self):
         assert parse_profile_url("https://x.com/elonmusk") == "elonmusk"
@@ -131,6 +133,7 @@ class TestParseProfileUrl:
 
 
 # --- XProfile dataclass ---
+
 
 class TestXProfileDefaults:
     def test_minimal(self):

@@ -13,12 +13,12 @@ Also includes domain-specific scrapers (Basescan, DexScreener) built on top.
 Requires: playwright (optional dependency)
     pip install playwright && playwright install chromium
 """
+
 from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,14 @@ ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
 class PlaywrightNotAvailable(RuntimeError):
     """Raised when Playwright is not installed or browsers are missing."""
+
     pass
 
 
 @dataclass
 class BasescanAddress:
     """Parsed Basescan address data."""
+
     address: str
     is_contract: bool = False
     eth_balance: str = ""
@@ -48,6 +50,7 @@ class BasescanAddress:
 @dataclass
 class DexScreenerToken:
     """Parsed DexScreener token data."""
+
     address: str
     name: str = ""
     symbol: str = ""
@@ -74,7 +77,7 @@ def screenshot_url(
     *,
     output_path: str = "screenshot.png",
     full_page: bool = False,
-    wait_selector: Optional[str] = None,
+    wait_selector: str | None = None,
     timeout: int = 30_000,
     viewport: tuple[int, int] = (1280, 900),
 ) -> str:
@@ -126,11 +129,11 @@ def _get_playwright():
     """Import and return playwright sync API. Raises PlaywrightNotAvailable on failure."""
     try:
         from playwright.sync_api import sync_playwright
+
         return sync_playwright
     except ImportError:
         raise PlaywrightNotAvailable(
-            "Playwright is not installed. Install with: "
-            "pip install playwright && playwright install chromium"
+            "Playwright is not installed. Install with: pip install playwright && playwright install chromium"
         )
 
 
@@ -139,9 +142,7 @@ def _launch_browser(playwright):
     try:
         browser = playwright.chromium.launch(headless=True)
     except Exception as e:
-        raise PlaywrightNotAvailable(
-            f"Failed to launch Chromium (run 'playwright install chromium'): {e}"
-        )
+        raise PlaywrightNotAvailable(f"Failed to launch Chromium (run 'playwright install chromium'): {e}")
     return browser
 
 
@@ -153,7 +154,10 @@ def _parse_number_text(text: str) -> str:
 
 
 def scrape_basescan_address(
-    address: str, *, timeout: int = 30_000, screenshot_path: Optional[str] = None,
+    address: str,
+    *,
+    timeout: int = 30_000,
+    screenshot_path: str | None = None,
 ) -> BasescanAddress:
     """Scrape Basescan for address information using headless Playwright.
 
@@ -209,8 +213,7 @@ def _parse_basescan_dom(page, address: str) -> BasescanAddress:
         # Also check for contract-related text in the page
         page_text = page.inner_text("body")
         result.is_contract = "contract" in page_text.lower() and (
-            "contract creator" in page_text.lower()
-            or "contract code" in page_text.lower()
+            "contract creator" in page_text.lower() or "contract code" in page_text.lower()
         )
     else:
         result.is_contract = True
@@ -234,10 +237,7 @@ def _parse_basescan_dom(page, address: str) -> BasescanAddress:
             result.eth_value_usd = usd_match.group(1).replace(",", "")
 
     # Transaction count
-    txn_el = page.query_selector(
-        "#ContentPlaceHolder1_divSummary a[href*='txs'], "
-        "#ContentPlaceHolder1_divTxDataInfo"
-    )
+    txn_el = page.query_selector("#ContentPlaceHolder1_divSummary a[href*='txs'], #ContentPlaceHolder1_divTxDataInfo")
     if txn_el:
         txn_text = txn_el.inner_text()
         txn_match = re.search(r"([\d,]+)\s*transactions?", txn_text, re.IGNORECASE)
@@ -253,11 +253,7 @@ def _parse_basescan_dom(page, address: str) -> BasescanAddress:
                 result.transaction_count = int(txn_num.group(1).replace(",", ""))
 
     # Token holdings count
-    token_el = page.query_selector(
-        "#ContentPlaceHolder1_tokenbalance, "
-        "#dropdownMenuBalance, "
-        "a[href*='tokenholdings']"
-    )
+    token_el = page.query_selector("#ContentPlaceHolder1_tokenbalance, #dropdownMenuBalance, a[href*='tokenholdings']")
     if token_el:
         token_text = token_el.inner_text()
         # Pattern: "N tokens" or just a number
@@ -268,8 +264,7 @@ def _parse_basescan_dom(page, address: str) -> BasescanAddress:
     # Contract creator (only for contracts)
     if result.is_contract:
         creator_el = page.query_selector(
-            "#ContentPlaceHolder1_trContract .hash-tag, "
-            "a[href*='address/0x'][data-bs-toggle='tooltip']"
+            "#ContentPlaceHolder1_trContract .hash-tag, a[href*='address/0x'][data-bs-toggle='tooltip']"
         )
         if creator_el:
             creator_text = creator_el.inner_text().strip()
@@ -277,16 +272,15 @@ def _parse_basescan_dom(page, address: str) -> BasescanAddress:
                 result.contract_creator = creator_text
 
         # Contract name
-        name_el = page.query_selector(
-            "#ContentPlaceHolder1_divSummary .u-label--secondary, "
-            ".contract-name"
-        )
+        name_el = page.query_selector("#ContentPlaceHolder1_divSummary .u-label--secondary, .contract-name")
         if name_el:
             result.contract_name = name_el.inner_text().strip()
 
     logger.info(
         "Basescan parsed: contract=%s balance=%s txns=%d",
-        result.is_contract, result.eth_balance, result.transaction_count,
+        result.is_contract,
+        result.eth_balance,
+        result.transaction_count,
     )
     return result
 
@@ -327,9 +321,7 @@ def scrape_dexscreener_token(address: str, *, timeout: int = 30_000) -> DexScree
             # DexScreener is an SPA — wait for price element to render
             try:
                 page.wait_for_selector(
-                    ".ds-dex-table-row-col-pair-price, "
-                    "[class*='price'], "
-                    "a[href*='/base/']",
+                    ".ds-dex-table-row-col-pair-price, [class*='price'], a[href*='/base/']",
                     timeout=timeout,
                 )
             except Exception:
@@ -347,10 +339,7 @@ def _parse_dexscreener_dom(page, address: str) -> DexScreenerToken:
     body_text = page.inner_text("body")
 
     # Token name and symbol — usually in the header area
-    header_el = page.query_selector(
-        "h1, [class*='pair-name'], [class*='token-name'], "
-        ".ds-dex-table-row-col-token"
-    )
+    header_el = page.query_selector("h1, [class*='pair-name'], [class*='token-name'], .ds-dex-table-row-col-token")
     if header_el:
         header_text = header_el.inner_text().strip()
         # Pattern: "TokenName (SYMBOL)" or "SYMBOL / WETH"
@@ -394,13 +383,13 @@ def _parse_dexscreener_dom(page, address: str) -> DexScreenerToken:
         result.price_change_24h = change_match.group(1)
 
     # Count pairs listed
-    pair_rows = page.query_selector_all(
-        ".ds-dex-table-row, [class*='pair-row'], tr[class*='pair']"
-    )
+    pair_rows = page.query_selector_all(".ds-dex-table-row, [class*='pair-row'], tr[class*='pair']")
     result.pair_count = len(pair_rows) if pair_rows else 0
 
     logger.info(
         "DexScreener parsed: price=%s liq=%s vol=%s",
-        result.price, result.liquidity, result.volume_24h,
+        result.price,
+        result.liquidity,
+        result.volume_24h,
     )
     return result

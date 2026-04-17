@@ -5,7 +5,6 @@ import json
 import os
 import sqlite3
 import time
-from typing import Optional
 
 from scraperx.scraper import Tweet
 
@@ -15,8 +14,9 @@ except ImportError:
     XProfile = None
 
 DEFAULT_DB_PATH = os.path.join(
-    os.path.expanduser('~'),
-    '.scraperx', 'social.db',
+    os.path.expanduser("~"),
+    ".scraperx",
+    "social.db",
 )
 
 _SCHEMA = """
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS verified_avatars (
 class SocialDB:
     """Thin wrapper around SQLite for social scraping data."""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._conn = sqlite3.connect(self.db_path)
@@ -128,11 +128,9 @@ class SocialDB:
         )
         self._conn.commit()
 
-    def get_tweet(self, tweet_id: str) -> Optional[Tweet]:
+    def get_tweet(self, tweet_id: str) -> Tweet | None:
         """Return a Tweet or None."""
-        row = self._conn.execute(
-            "SELECT * FROM tweets WHERE tweet_id = ?", (tweet_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM tweets WHERE tweet_id = ?", (tweet_id,)).fetchone()
         if row is None:
             return None
         return Tweet(
@@ -179,9 +177,7 @@ class SocialDB:
 
     def get_profile(self, handle: str, max_age_days: int = 7):
         """Return an XProfile or None if not found / stale."""
-        row = self._conn.execute(
-            "SELECT * FROM profiles WHERE handle = ?", (handle,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM profiles WHERE handle = ?", (handle,)).fetchone()
         if row is None:
             return None
         age_seconds = time.time() - row["scraped_at"]
@@ -212,7 +208,7 @@ class SocialDB:
         tweet_id: str,
         token_symbol: str,
         mention_type: str,
-        token_address: Optional[str] = None,
+        token_address: str | None = None,
     ) -> None:
         self._conn.execute(
             """INSERT INTO token_mentions
@@ -269,9 +265,7 @@ class SocialDB:
     def _query_hash(query: str) -> str:
         return hashlib.sha256(query.strip().lower().encode()).hexdigest()
 
-    def save_search_cache(
-        self, query: str, tweet_ids: list[str], ttl: int = 3600
-    ) -> None:
+    def save_search_cache(self, query: str, tweet_ids: list[str], ttl: int = 3600) -> None:
         qh = self._query_hash(query)
         self._conn.execute(
             """INSERT OR REPLACE INTO search_cache
@@ -282,12 +276,10 @@ class SocialDB:
         )
         self._conn.commit()
 
-    def get_search_cache(self, query: str) -> Optional[list[str]]:
+    def get_search_cache(self, query: str) -> list[str] | None:
         """Return cached tweet_ids if fresh, else None."""
         qh = self._query_hash(query)
-        row = self._conn.execute(
-            "SELECT * FROM search_cache WHERE query_hash = ?", (qh,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM search_cache WHERE query_hash = ?", (qh,)).fetchone()
         if row is None:
             return None
         if time.time() - row["searched_at"] > row["ttl_seconds"]:

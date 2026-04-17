@@ -10,13 +10,13 @@ Integration notes:
   based on provider. Wistia/JWPlayer/Brightcove — transcript NOT IMPLEMENTED
   in this first pass (return informational result).
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -27,13 +27,13 @@ logger = logging.getLogger(__name__)
 HAS_BS4 = False
 try:
     from bs4 import BeautifulSoup  # noqa: F401
+
     HAS_BS4 = True
 except ImportError:
     pass
 
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
 # Provider signatures — each returns (provider_key, video_id, canonical_url)
@@ -98,12 +98,13 @@ _JSON_LD_RE = re.compile(
 @dataclass(frozen=True)
 class VideoRef:
     """Reference to a detected video embed on an arbitrary page."""
+
     provider: str  # youtube | vimeo | wistia | jwplayer | brightcove | html5
     id: str
     canonical_url: str
     embed_url: str
     page_url: str
-    referer: Optional[str] = None
+    referer: str | None = None
     extra: dict = field(default_factory=dict, hash=False)
 
     def __hash__(self) -> int:
@@ -148,42 +149,47 @@ def _scan_html_for_videos(html: str, page_url: str) -> list[VideoRef]:
     refs: list[VideoRef] = []
     seen: set[tuple[str, str]] = set()
 
-    def _add(provider: str, vid: str, embed: str, extra: Optional[dict] = None) -> None:
+    def _add(provider: str, vid: str, embed: str, extra: dict | None = None) -> None:
         key = (provider, vid)
         if key in seen:
             return
         seen.add(key)
         canonical = _canonical_for_provider(provider, vid, embed)
-        refs.append(VideoRef(
-            provider=provider,
-            id=vid,
-            canonical_url=canonical,
-            embed_url=_normalize_url(embed, page_url),
-            page_url=page_url,
-            referer=page_url,
-            extra=(extra or {}),
-        ))
+        refs.append(
+            VideoRef(
+                provider=provider,
+                id=vid,
+                canonical_url=canonical,
+                embed_url=_normalize_url(embed, page_url),
+                page_url=page_url,
+                referer=page_url,
+                extra=(extra or {}),
+            )
+        )
 
     # Iframe sources
     for m in _IFRAME_SRC_RE.finditer(html):
         src = m.group(1)
-        if (ym := _YOUTUBE_IFRAME_RE.search(src)):
+        if ym := _YOUTUBE_IFRAME_RE.search(src):
             _add("youtube", ym.group(1), src)
             continue
-        if (vm := _VIMEO_IFRAME_RE.search(src)):
+        if vm := _VIMEO_IFRAME_RE.search(src):
             extra = {"hash": vm.group(2)} if vm.group(2) else {}
             _add("vimeo", vm.group(1), src, extra=extra)
             continue
-        if (wm := _WISTIA_IFRAME_RE.search(src)):
+        if wm := _WISTIA_IFRAME_RE.search(src):
             _add("wistia", wm.group(1), src)
             continue
-        if (jm := _JWPLAYER_IFRAME_RE.search(src)):
+        if jm := _JWPLAYER_IFRAME_RE.search(src):
             _add("jwplayer", f"{jm.group(1)}-{jm.group(2)}", src)
             continue
-        if (bm := _BRIGHTCOVE_IFRAME_RE.search(src)):
-            _add("brightcove", bm.group(3),
-                 f"https://players.brightcove.net/{bm.group(1)}/{bm.group(2)}/index.html?videoId={bm.group(3)}",
-                 extra={"account_id": bm.group(1), "player_id": bm.group(2)})
+        if bm := _BRIGHTCOVE_IFRAME_RE.search(src):
+            _add(
+                "brightcove",
+                bm.group(3),
+                f"https://players.brightcove.net/{bm.group(1)}/{bm.group(2)}/index.html?videoId={bm.group(3)}",
+                extra={"account_id": bm.group(1), "player_id": bm.group(2)},
+            )
             continue
 
     # YouTube watch / youtu.be links (sometimes inline without iframe)
@@ -232,7 +238,7 @@ def _scan_html_for_videos(html: str, page_url: str) -> list[VideoRef]:
     return refs
 
 
-def discover_videos(page_url: str, html: Optional[str] = None, timeout: int = 15) -> list[VideoRef]:
+def discover_videos(page_url: str, html: str | None = None, timeout: int = 15) -> list[VideoRef]:
     """Scan an arbitrary webpage for embedded videos.
 
     Args:
@@ -277,13 +283,17 @@ def fetch_any_video_transcript(
     # Direct URL detection
     if "youtube.com/watch" in url_or_page or "youtu.be/" in url_or_page or "youtube.com/embed" in url_or_page:
         from scraperx.youtube_scraper import YouTubeScraper
+
         scraper = YouTubeScraper()
         return scraper.get_transcript(url_or_page, force_whisper=force_whisper)
 
     if "vimeo.com" in url_or_page:
         from scraperx.vimeo_scraper import VimeoScraper
+
         scraper = VimeoScraper()
-        return scraper.get_transcript(url_or_page, force_whisper=force_whisper, max_duration_minutes=max_duration_minutes)
+        return scraper.get_transcript(
+            url_or_page, force_whisper=force_whisper, max_duration_minutes=max_duration_minutes
+        )
 
     # Generic page — discover, then recurse on first video
     refs = discover_videos(url_or_page)
@@ -292,9 +302,11 @@ def fetch_any_video_transcript(
     first = refs[0]
     if first.provider == "youtube":
         from scraperx.youtube_scraper import YouTubeScraper
+
         return YouTubeScraper().get_transcript(first.canonical_url, force_whisper=force_whisper)
     if first.provider == "vimeo":
         from scraperx.vimeo_scraper import VimeoScraper
+
         return VimeoScraper().get_transcript(
             first.canonical_url,
             force_whisper=force_whisper,
