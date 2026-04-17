@@ -11,6 +11,8 @@ from .screenshot import (
 )
 from scraperx.authenticity import ThreadAuthenticity, check_thread_authenticity
 from scraperx.avatar_matcher import AvatarMatcher, VerifiedAvatarRegistry
+from scraperx.vimeo_scraper import VimeoScraper, VimeoResult, parse_vimeo_url
+from scraperx.video_discovery import VideoRef, discover_videos, fetch_any_video_transcript
 
 __version__ = "1.3.0"
 
@@ -25,4 +27,6 @@ __all__ = [
     "PlaywrightNotAvailable",
     "ThreadAuthenticity", "check_thread_authenticity",
     "AvatarMatcher", "VerifiedAvatarRegistry",
+    "VimeoScraper", "VimeoResult", "parse_vimeo_url",
+    "VideoRef", "discover_videos", "fetch_any_video_transcript",
 ]

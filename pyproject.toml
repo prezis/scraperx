@@ -31,6 +31,7 @@ twscrape = ["twscrape>=0.12"]
 whisper = ["openai-whisper>=20231117"]
 blockchain = ["playwright>=1.40"]
 vision = ["imagehash>=4.3", "Pillow>=10.0"]
+video-discovery = ["beautifulsoup4>=4.12"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]

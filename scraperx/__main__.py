@@ -20,6 +20,8 @@ from .scraper import XScraper, Tweet, TWEET_URL_RE
 from .youtube_scraper import YouTubeScraper, YOUTUBE_URL_RE
 from .profile import get_profile, parse_profile_url, PROFILE_URL_RE
 from .search import search_tweets
+from scraperx.vimeo_scraper import VimeoScraper, _is_vimeo_url
+from scraperx.video_discovery import discover_videos
 
 
 def _is_youtube_url(url: str) -> bool:
@@ -49,6 +51,9 @@ def main():
             return
         if subcmd == "screenshot":
             _main_screenshot()
+            return
+        if subcmd == "discover":
+            _main_discover()
             return
     _main_url()
 
@@ -98,6 +103,8 @@ def _main_url():
 
     if _is_youtube_url(args.url):
         _handle_youtube(args)
+    elif _is_vimeo_url(args.url):
+        _handle_vimeo(args)
     elif _is_tweet_url(args.url):
         if args.thread:
             _handle_thread(args)
@@ -146,6 +153,86 @@ def _handle_youtube(args):
             print(f"Full transcript: {result.transcript_path}")
         else:
             print(result.transcript)
+
+
+def _handle_vimeo(args):
+    scraper = VimeoScraper()
+    try:
+        result = scraper.get_transcript(args.url, force_whisper=args.force_whisper)
+    except (RuntimeError, ValueError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        out = {
+            "provider": result.provider,
+            "video_id": result.video_id,
+            "title": result.title,
+            "author": result.author,
+            "duration_seconds": result.duration_seconds,
+            "canonical_url": result.canonical_url,
+            "transcript": result.transcript,
+            "transcript_method": result.transcript_method,
+        }
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+    else:
+        print(f"Title: {result.title}")
+        print(f"Author: {result.author}")
+        print(f"Duration: {int(result.duration_seconds) // 60}min")
+        print(f"Method: {result.transcript_method}")
+        print(f"---")
+        print(f"\nTranscript:\n{result.transcript}")
+
+
+def _main_discover():
+    parser = argparse.ArgumentParser(
+        prog="scraperx discover",
+        description="Detect embedded videos on an arbitrary webpage"
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "discover"
+    parser.add_argument("url", help="Webpage URL to scan for embedded videos")
+    parser.add_argument("--json", action="store_true", help="Output JSON")
+    parser.add_argument("--timeout", type=int, default=15, help="Fetch timeout in seconds (default: 15)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+
+    try:
+        refs = discover_videos(args.url, timeout=args.timeout)
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        out = [
+            {
+                "provider": r.provider,
+                "id": r.id,
+                "canonical_url": r.canonical_url,
+                "embed_url": r.embed_url,
+                "page_url": r.page_url,
+                "referer": r.referer,
+                "extra": r.extra,
+            }
+            for r in refs
+        ]
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+    else:
+        if not refs:
+            print(f"No videos detected on {args.url}")
+            return
+        print(f"Detected {len(refs)} video(s) on {args.url}:\n")
+        for i, r in enumerate(refs, 1):
+            print(f"[{i}] {r.provider}  id={r.id}")
+            print(f"    canonical: {r.canonical_url}")
+            print(f"    embed:     {r.embed_url}")
+            if r.extra:
+                print(f"    extra:     {r.extra}")
+            print()
 
 
 def _tweet_to_dict(tweet: Tweet) -> dict:

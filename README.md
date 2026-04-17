@@ -138,6 +138,8 @@ The chain ensures you always get at least the tweet text, even if third-party AP
 | `thread.py` | Full thread reconstruction. `get_thread(url)` |
 | `search.py` | Tweet search via DuckDuckGo + FxTwitter. `search_tweets("query")` |
 | `youtube_scraper.py` | Video transcription (auto-captions → faster-whisper GPU → whisper CLI fallback). `YouTubeScraper().get_transcript(url)` |
+| `vimeo_scraper.py` | Vimeo video transcription (oEmbed + player config + whisper fallback) |
+| `video_discovery.py` | Detect embedded videos on arbitrary webpages (6 providers) |
 
 ### Data & Storage
 
