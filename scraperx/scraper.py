@@ -55,6 +55,34 @@ class Tweet:
     article_title: Optional[str] = None
     article_text: Optional[str] = None
     quoted_tweet: Optional['Tweet'] = None
+    # Reply/thread context
+    is_reply: bool = False
+    in_reply_to_tweet_id: Optional[str] = None
+    in_reply_to_handle: Optional[str] = None
+    in_reply_to_author_id: Optional[str] = None
+    is_quote: bool = False
+    conversation_id: Optional[str] = None
+
+    # Temporal + locale
+    created_at: Optional[str] = None
+    created_timestamp: Optional[int] = None
+    lang: Optional[str] = None
+    possibly_sensitive: Optional[bool] = None
+    source_client: Optional[str] = None
+
+    # Note / community-note flags
+    is_note_tweet: Optional[bool] = None
+    is_community_note_marked: Optional[bool] = None
+
+    # Author trust signals
+    author_verified: Optional[bool] = None
+    author_verified_type: Optional[str] = None       # "blue"|"business"|"government"|"legacy"
+    author_affiliation: Optional[dict] = None
+    author_followers: Optional[int] = None
+    author_following: Optional[int] = None
+    author_joined: Optional[str] = None              # RFC 2822 string
+    author_protected: Optional[bool] = None
+    is_pinned: Optional[bool] = None
     source_method: str = ""
     raw: dict = field(default_factory=dict, repr=False)
 
@@ -295,7 +323,7 @@ class XScraper:
         if t.get("quote"):
             quoted_tweet = _parse_quoted_tweet(t["quote"], depth=0)
 
-        return Tweet(
+        tweet = Tweet(
             id=tweet_id,
             text=text,
             author=t.get("author", {}).get("name", user),
@@ -312,6 +340,8 @@ class XScraper:
             quoted_tweet=quoted_tweet,
             raw=data,
         )
+        _enrich_tweet_from_fxtwitter_raw(tweet, data)
+        return tweet
 
     # --- Method 2: vxTwitter API ---
 
@@ -331,7 +361,7 @@ class XScraper:
         if data.get("quote"):
             quoted_tweet = _parse_quoted_tweet(data["quote"], depth=0)
 
-        return Tweet(
+        tweet = Tweet(
             id=tweet_id,
             text=data.get("text", ""),
             author=data.get("user_name", user),
@@ -344,6 +374,8 @@ class XScraper:
             quoted_tweet=quoted_tweet,
             raw=data,
         )
+        _enrich_tweet_from_vxtwitter_raw(tweet, data)
+        return tweet
 
     # --- Method 3: yt-dlp (requires cookies or login) ---
 
@@ -405,3 +437,110 @@ class XScraper:
             author_handle=handle,
             raw=data,
         )
+
+
+def _enrich_tweet_from_fxtwitter_raw(tweet: "Tweet", raw: dict) -> None:
+    """Fill new Tweet fields from a raw FxTwitter tweet dict.
+
+    FxTwitter shape (reference: api.fxtwitter.com/{user}/status/{id}):
+      {
+        "code": 200,
+        "message": "OK",
+        "tweet": {
+          "id": "...", "text": "...", "created_at": "...",
+          "created_timestamp": 123, "lang": "en",
+          "replying_to": "handle_str",
+          "replying_to_status": "tweet_id_str",
+          "source": "Twitter Web App",
+          "is_note_tweet": false,
+          "community_note": null,
+          "quote": {...nested tweet...},
+          "author": {
+            "screen_name": "...", "name": "...", "avatar_url": "...",
+            "id": "...", "followers": 123, "following": 45,
+            "joined": "RFC 2822 string", "protected": false,
+            "verification": {"verified": true, "type": "blue"},
+            "affiliation": {"label": "...", "badge_url": "...", "url": "..."} or null
+          }
+        }
+      }
+    """
+    if not raw:
+        return
+    # FxTwitter nests under "tweet" — accept both already-unwrapped and wrapped
+    t = raw.get("tweet") if isinstance(raw.get("tweet"), dict) else raw
+
+    tweet.created_at = t.get("created_at")
+    ts = t.get("created_timestamp")
+    if isinstance(ts, int):
+        tweet.created_timestamp = ts
+    elif isinstance(ts, str) and ts.isdigit():
+        tweet.created_timestamp = int(ts)
+    tweet.lang = t.get("lang")
+    tweet.possibly_sensitive = t.get("possibly_sensitive")
+    tweet.source_client = t.get("source")
+    tweet.is_note_tweet = t.get("is_note_tweet")
+    tweet.is_community_note_marked = bool(t.get("community_note"))
+
+    # Reply fields
+    replying_to = t.get("replying_to")
+    replying_to_status = t.get("replying_to_status")
+    if replying_to or replying_to_status:
+        tweet.is_reply = True
+        if isinstance(replying_to, str):
+            tweet.in_reply_to_handle = replying_to
+        elif isinstance(replying_to, dict):
+            tweet.in_reply_to_handle = replying_to.get("screen_name") or replying_to.get("handle")
+            tweet.in_reply_to_author_id = str(replying_to.get("id")) if replying_to.get("id") else None
+        if isinstance(replying_to_status, str):
+            tweet.in_reply_to_tweet_id = replying_to_status
+        elif isinstance(replying_to_status, dict):
+            tweet.in_reply_to_tweet_id = str(replying_to_status.get("id", ""))
+
+    # Quote flag
+    if t.get("quote"):
+        tweet.is_quote = True
+
+    # Conversation ID — FxTwitter doesn't expose this; leave None
+    # (syndication path fills it separately in thread.py)
+
+    # Author trust
+    author = t.get("author", {}) if isinstance(t.get("author"), dict) else {}
+    verification = author.get("verification", {}) if isinstance(author.get("verification"), dict) else {}
+    tweet.author_verified = verification.get("verified")
+    tweet.author_verified_type = verification.get("type")
+    tweet.author_affiliation = author.get("affiliation") if isinstance(author.get("affiliation"), dict) else None
+    tweet.author_followers = author.get("followers")
+    tweet.author_following = author.get("following")
+    tweet.author_joined = author.get("joined")
+    tweet.author_protected = author.get("protected")
+
+
+def _enrich_tweet_from_vxtwitter_raw(tweet: "Tweet", raw: dict) -> None:
+    """Fill new Tweet fields from a raw vxTwitter tweet dict.
+
+    vxTwitter fields:
+      tweetID, text, date (human), date_epoch, lang, possibly_sensitive,
+      conversationID, replyingTo, replyingToID, qrt (quoted tweet dict)
+    """
+    if not raw:
+        return
+    tweet.created_at = raw.get("date")
+    ts = raw.get("date_epoch")
+    if isinstance(ts, int):
+        tweet.created_timestamp = ts
+    tweet.lang = raw.get("lang")
+    tweet.possibly_sensitive = raw.get("possibly_sensitive")
+    tweet.conversation_id = raw.get("conversationID") or raw.get("conversation_id_str")
+
+    replying_to = raw.get("replyingTo")
+    replying_to_id = raw.get("replyingToID")
+    if replying_to or replying_to_id:
+        tweet.is_reply = True
+        if isinstance(replying_to, str):
+            tweet.in_reply_to_handle = replying_to
+        if replying_to_id:
+            tweet.in_reply_to_tweet_id = str(replying_to_id)
+
+    if raw.get("qrt"):
+        tweet.is_quote = True

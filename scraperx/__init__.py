@@ -9,6 +9,7 @@ from .screenshot import (
     screenshot_url,
     PlaywrightNotAvailable,
 )
+from scraperx.authenticity import ThreadAuthenticity, check_thread_authenticity
 
 __version__ = "1.2.0"
 
@@ -21,4 +22,5 @@ __all__ = [
     "SocialDB",
     "screenshot_url",
     "PlaywrightNotAvailable",
+    "ThreadAuthenticity", "check_thread_authenticity",
 ]

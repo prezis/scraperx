@@ -30,7 +30,12 @@ from dataclasses import dataclass, field
 from typing import Optional
 from urllib.request import Request, urlopen
 
-from scraperx.scraper import Tweet, _http_get_json, parse_tweet_url
+from scraperx.scraper import (
+    Tweet,
+    _enrich_tweet_from_fxtwitter_raw,
+    _http_get_json,
+    parse_tweet_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +96,52 @@ def _fetch_tweet_fxtwitter(user: str, tweet_id: str, timeout: int = 15) -> tuple
         source_method="fxtwitter",
         raw=data,
     )
+    _enrich_tweet_from_fxtwitter_raw(tweet, data)
     return tweet, t
+
+
+def _enrich_tweet_from_syndication(tweet: "Tweet", syn_tweet: dict) -> None:
+    """Fill conversation_id + reply fields from Twitter syndication __NEXT_DATA__.
+
+    Syndication tweet shape uses legacy v1.1 JSON fields:
+      id_str, conversation_id_str, in_reply_to_status_id_str,
+      in_reply_to_screen_name, user.id_str, created_at, lang,
+      possibly_sensitive, user.verified, user.is_blue_verified,
+      user.verified_type, user.followers_count, user.friends_count,
+      user.created_at (= author_joined), user.protected
+    """
+    if not syn_tweet:
+        return
+    tweet.conversation_id = syn_tweet.get("conversation_id_str") or tweet.conversation_id
+    in_reply_id = syn_tweet.get("in_reply_to_status_id_str")
+    in_reply_handle = syn_tweet.get("in_reply_to_screen_name")
+    if in_reply_id or in_reply_handle:
+        tweet.is_reply = True
+        if in_reply_id:
+            tweet.in_reply_to_tweet_id = in_reply_id
+        if in_reply_handle:
+            tweet.in_reply_to_handle = in_reply_handle
+
+    user = syn_tweet.get("user", {}) if isinstance(syn_tweet.get("user"), dict) else {}
+    if user.get("id_str"):
+        # Fill author_id if not already set
+        if not tweet.author_id:
+            tweet.author_id = user.get("id_str")
+    # Verified flags (syndication uses legacy + blue flags)
+    tweet.author_verified = user.get("verified") or user.get("is_blue_verified") or tweet.author_verified
+    tweet.author_verified_type = user.get("verified_type") or tweet.author_verified_type
+    tweet.author_followers = user.get("followers_count") or tweet.author_followers
+    tweet.author_following = user.get("friends_count") or tweet.author_following
+    tweet.author_joined = user.get("created_at") or tweet.author_joined
+    tweet.author_protected = user.get("protected") if user.get("protected") is not None else tweet.author_protected
+    # Pinned detection via user.pinned_tweet_ids_str containing this tweet's id
+    pinned_ids = user.get("pinned_tweet_ids_str") or []
+    if isinstance(pinned_ids, list) and tweet.id in pinned_ids:
+        tweet.is_pinned = True
+    tweet.lang = syn_tweet.get("lang") or tweet.lang
+    if syn_tweet.get("possibly_sensitive") is not None:
+        tweet.possibly_sensitive = syn_tweet.get("possibly_sensitive")
+    tweet.created_at = syn_tweet.get("created_at") or tweet.created_at
 
 
 def _get_parent_id(raw_tweet: dict) -> str | None:
@@ -127,12 +177,20 @@ class _SyndicationTweet:
     text: str
 
 
-def _fetch_syndication_timeline(user: str, timeout: int = 15) -> list[_SyndicationTweet]:
+def _fetch_syndication_timeline(
+    user: str,
+    timeout: int = 15,
+    raw_map: Optional[dict] = None,
+) -> list[_SyndicationTweet]:
     """Fetch the author's profile timeline from Twitter syndication.
 
     Returns a list of lightweight tweet objects with conversation_id.
     The syndication endpoint returns an HTML page with ``__NEXT_DATA__``
     containing JSON tweet objects that include ``conversation_id_str``.
+
+    If *raw_map* is provided, it is populated with {id_str: raw_tweet_dict}
+    entries so callers can enrich Tweet objects from the full legacy v1.1
+    syndication payload.
     """
     url = _SYNDICATION_TIMELINE.format(user=user)
     req = Request(url, headers={
@@ -188,6 +246,8 @@ def _fetch_syndication_timeline(user: str, timeout: int = 15) -> list[_Syndicati
                         screen_name=user_obj.get("screen_name", ""),
                         text=(obj.get("full_text") or obj.get("text") or "")[:500],
                     ))
+                    if raw_map is not None:
+                        raw_map[id_str] = obj
             for v in obj.values():
                 _walk(v, depth + 1)
         elif isinstance(obj, list):
@@ -204,6 +264,7 @@ def _walk_down_syndication(
     seen_ids: set[str],
     timeout: int,
     max_new: int,
+    raw_map: Optional[dict] = None,
 ) -> list[str]:
     """Find thread continuation tweet IDs via syndication timeline.
 
@@ -212,8 +273,17 @@ def _walk_down_syndication(
     AND are by the same author (self-replies only).
 
     Returns tweet IDs (sorted ascending) that are NOT in *seen_ids*.
+
+    If *raw_map* is provided, it is populated with {id_str: raw_syndication_dict}
+    for all tweets seen in the timeline so callers can enrich Tweet objects
+    with legacy v1.1 syndication fields (conversation_id, author_verified,
+    author_joined, etc.).
     """
-    timeline = _fetch_syndication_timeline(author_handle, timeout=timeout)
+    timeline = _fetch_syndication_timeline(
+        author_handle,
+        timeout=timeout,
+        raw_map=raw_map,
+    )
     if not timeline:
         return []
 
@@ -406,13 +476,23 @@ def get_thread(
             logger.debug("walk-down: depth budget exhausted after walk-up")
         else:
             # Method 1: syndication timeline (conversation_id grouping)
+            syndication_raw: dict = {}
             new_ids = _walk_down_syndication(
                 root_id=root_id,
                 author_handle=author_handle,
                 seen_ids=seen_ids,
                 timeout=timeout,
                 max_new=remaining,
+                raw_map=syndication_raw,
             )
+
+            # Enrich tweets already in the chain with syndication data (fills
+            # conversation_id + author_verified + author_joined etc. that
+            # FxTwitter alone doesn't expose).
+            for existing_tw, _existing_raw in chain:
+                syn = syndication_raw.get(existing_tw.id)
+                if syn:
+                    _enrich_tweet_from_syndication(existing_tw, syn)
 
             if new_ids:
                 # Fetch each new tweet via FxTwitter for full data
@@ -426,6 +506,10 @@ def get_thread(
                         continue
                     if tw.author_handle.lower() != author_lower:
                         continue
+                    # Enrich with syndication data (conversation_id, trust fields)
+                    syn = syndication_raw.get(tid)
+                    if syn:
+                        _enrich_tweet_from_syndication(tw, syn)
                     seen_ids.add(tid)
                     chain.append((tw, tw_raw))
 
