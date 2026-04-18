@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-04-18
+
+Major feature release: deep GitHub repository trust analysis with scored verdicts, community mention aggregation across 6 dedicated platforms + 6 generic sites, GitHub Trending scraper, and graceful GPU-backed synthesis.
+
+### Added — `scraperx.github_analyzer` module
+
+- **`analyze_github_repo(url)` / `GithubAnalyzer`** — end-to-end pipeline: REST metadata → scoring → community mentions → optional web-search layer → LLM-synthesized 3-bullet verdict with inline citations + 0-100 overall score. Dependency-injected at every external call (GitHub token, SQLite cache, web-search fn, LLM fn) so the whole thing is unit-testable without a network.
+- **`github_api.py`** — stdlib-only GitHub REST client. 8 endpoints: `get_repo`, `get_contributors`, `get_recent_commits`, `get_releases`, `get_top_forks`, `get_readme`, `get_workflows`, `get_advisories` (GHSA). Rate-limit header absorption + fail-fast pre-flight when the window is exhausted. Exceptions: `GithubAPIError`, `RepoNotFoundError`, `RateLimitExceededError(reset_at)`.
+- **`scoring.py`** — 4 pure heuristics (0-100 int each): `bus_factor_score` (k-at-50% contribution share), `momentum_score` (commits + star delta over 90 days), `health_score` (archived / license / issue & fork ratios), `readme_quality_score` (length + heading + code + link + install keyword). Graceful on malformed input — never raises.
+- **`mentions/`** — 6 Tier-A platform adapters: `hn` (Algolia HN Search), `reddit` (`/search.json`), `stackoverflow` (StackExchange API 2.3), `devto` (dev.to articles + client-side slug filter), `arxiv` (Atom XML, `xml.etree`), `pwc` (Papers With Code). Every adapter: common contract (never raise, return `[]` on any error, normalize to `ExternalMention`, cache hit/miss via SQLite). `ALL_SOURCES` registry for iteration.
+- **`semantic.py`** — Tier-B generic web search. Takes an injected `web_search_fn` (matches `local_web_search` MCP signature), composes `(site:lobste.rs OR site:substack.com …) "owner/repo"` queries, filters hits to an allowlist of hosts (Lobsters, Substack, Medium, Product Hunt, Bluesky, LinkedIn). Graceful degradation when `web_search_fn` is None.
+- **`trending.py`** — `fetch_trending(since, language, spoken_language_code)` scrapes github.com/trending (no public API). Dual parser: BeautifulSoup preferred, regex fallback when bs4 unavailable (same optional-bs4 pattern as `video_discovery.py`). Returns `list[TrendingRepo]`. Browser User-Agent required — GitHub blocks naked urllib.
+- **`synthesis.py`** — populated report → `trust.overall` + `trust.rationale` + `verdict_markdown`. Dependency-injected `local_llm_fn` (qwen3:4b fast, qwen3.5:27b on `deep=True`). Robust JSON extraction via brace-counter (qwen sometimes wraps its output in prose or code fences). Heuristic fallback (sub-score weighted average) when the LLM is unreachable or returns unparseable output.
+- **`schemas.py`** — 7 stdlib dataclasses: `GithubReport`, `RepoTrustScore`, `ContributorInfo`, `ForkInfo`, `ExternalMention`, `SecurityAdvisory` (GHSA), `TrendingRepo`. No Pydantic — matches scraperx core discipline. Full JSON serialization via `to_dict()`.
+
+### Added — CLI
+
+- **`scraperx github OWNER/REPO [--json] [--deep] [--no-mentions] [--no-cache]`** — produces markdown trust report (or JSON dump with `--json`). Accepts shorthand `owner/repo`, full URL, `.git` suffix, SSH form, or sub-path URLs. Invalid URL → exit 2 with stderr message.
+- **`scraperx trending [--since daily|weekly|monthly] [--lang python] [--spoken en] [--limit 25] [--json]`** — lists github.com/trending. Defaults to daily + all languages (per Q2 handoff decision).
+
+### Added — SQLite cache
+
+- **3 new tables** in `social_db.py` (share the existing `~/.scraperx/social.db`): `github_repo_cache` (composite key `(full_name, kind)`, per-kind TTL: repo 24h, commits 6h, etc.), `github_fork_cache` (6h TTL), `github_mentions_cache` (4h TTL). Composite-kind design means one table covers repo / contributors / commits / releases / readme / workflows / issues / advisories without schema churn.
+- **New SocialDB methods**: `save_repo_cache`/`get_repo_cache`, `save_fork_cache`/`get_fork_cache`, `save_mentions_cache`/`get_mentions_cache`, `purge_expired_github_cache`. Query-hash normalisation so `"Yt-Dlp"` and `"  yt-dlp  "` collide. Empty results NOT cached — lets transient errors retry next call.
+
+### Added — top-level exports
+
+- **`scraperx` package** re-exports: `GithubAnalyzer`, `GithubReport`, `InvalidRepoUrlError`, `analyze_github_repo`, `parse_github_repo_url`.
+
+### Added — Tests
+
+- **236 new tests** covering: URL parsing across 6 shapes, schema round-trip, SQLite cache (hit/miss/TTL/purge/case-insensitivity), GitHub REST (auth/404/403-rate-limit/URLError/invalid-JSON/pre-flight), scoring (34 parametrized heuristic cases), mention adapters (happy + error + cache per platform), semantic layer (graceful degradation + site filter + subdomain acceptance), trending (dual-parser + URL building), synthesis (JSON extraction + heuristic fallback + LLM happy + 5 error paths), CLI end-to-end (argv dispatch + flags + `__main__` routing), full-pipeline e2e integration (happy + partial-failure + 404-short-circuit + skip-mentions). Total suite: **441 passing, 0 ruff warnings**.
+
+### Changed
+
+- **`pyproject.toml`**: `description` extended to mention GitHub analyzer; `keywords` +5 entries.
+- **`README.md`**: new top-level feature section (see below).
+
+## [Unreleased-prior-to-1.4.0]
+
 ### Fixed
 - **`VimeoScraper.get_metadata()` — fallback to player config when oEmbed 404s.** Vimeo's oEmbed endpoint has been unreliable since late 2025 (returns 404 on live queries even for public videos). `get_metadata` now tries oEmbed first and transparently falls back to `player.vimeo.com/video/{id}/config` for durable metadata (title, author, duration, thumbnail). Result dict now includes a `source` field (`"oembed"` | `"player_config"`). Only raises if BOTH endpoints fail.
 

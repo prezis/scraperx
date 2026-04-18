@@ -23,7 +23,9 @@ ScraperX fetches social-media posts, transcribes videos, and verifies authentici
 - **Impersonation detection** (NEW) — perceptual-hash avatar matcher (pHash 8×8) with SQLite cache + rolling-window registry. Catches scammers who re-upload a victim's avatar under a typosquat handle.
 - **Scam content detection** — crypto-giveaway phrases, wallet addresses, shortener domains, emoji spam.
 - **Token extraction** — `$CASHTAG` mentions + known Solana tokens.
-- **SQLite persistence** — tweets, profiles, mentions, avatar hashes, search cache.
+- **GitHub deep analyzer** (NEW in 1.4.0) — paste any `owner/repo` URL, get a 0–100 trust verdict with 3-bullet rationale, community mention aggregation across HN / Reddit / StackOverflow / dev.to / arXiv / Papers With Code, notable forks, security advisories (GHSA), and sub-scores for bus factor / momentum / health / README quality. Optional LLM synthesis via local GPU.
+- **GitHub trending** (NEW in 1.4.0) — `scraperx trending` lists github.com/trending for daily / weekly / monthly windows with language filters.
+- **SQLite persistence** — tweets, profiles, mentions, avatar hashes, search cache, GitHub repo/fork/mention caches with per-kind TTL.
 
 Why no API keys? The official APIs are expensive, rate-limited, and unstable. ScraperX leans on public endpoints (oEmbed, FxTwitter, vxTwitter, syndication, yt-dlp) with no auth wall.
 
@@ -301,6 +303,87 @@ result = fetch_any_video_transcript("https://some-blog.com/post-with-vimeo-embed
 - HTML5 `<video>` / `<source>` / `og:video` meta / JSON-LD `VideoObject`
 
 Deduplicates by `(provider, id)`. Works without `beautifulsoup4` (regex fallback). Returns `VideoRef` objects with `page_url` + `referer` for embed-locked downstream calls.
+
+### 7. GitHub deep analyzer — trust verdicts + community mentions (NEW in 1.4.0)
+
+One command, one verdict. Paste a repo URL, get back:
+
+- 0–100 overall trust score with a one-line rationale
+- 4 sub-scores: bus factor, momentum, health, README quality
+- Community mentions across 6 dedicated platforms (HN, Reddit, StackOverflow, dev.to, arXiv, Papers With Code) + 6 generic sites via the Tier-B semantic layer (Lobsters, Medium, Bluesky, Product Hunt, Substack, LinkedIn)
+- Notable forks (catches "community took over" signals)
+- Security advisories (GHSA)
+- 3-bullet verdict with inline `[n]` citations to the mentions list
+
+#### CLI
+
+```bash
+# Markdown report
+scraperx github yt-dlp/yt-dlp
+
+# Full URL, JSON output
+scraperx github https://github.com/rust-lang/rust --json
+
+# Deep mode — qwen3.5:27b synthesis instead of qwen3:4b (slower, higher quality)
+scraperx github yt-dlp/yt-dlp --deep
+
+# Skip community mentions for a quick metadata-only check
+scraperx github yt-dlp/yt-dlp --no-mentions
+
+# Disable SQLite cache for this run
+scraperx github yt-dlp/yt-dlp --no-cache
+
+# Also: trending
+scraperx trending                         # daily, all languages
+scraperx trending --since weekly --lang python --limit 10
+scraperx trending --json
+```
+
+#### Python
+
+```python
+from scraperx import GithubAnalyzer, analyze_github_repo
+
+# One-shot — heuristic verdict (no LLM, no cache)
+report = analyze_github_repo("yt-dlp/yt-dlp")
+print(f"Trust: {report.trust.overall}/100 — {report.trust.rationale}")
+
+# With full wiring: cache + web-search + LLM synthesis
+from scraperx import SocialDB
+
+analyzer = GithubAnalyzer(
+    github_token=None,           # or os.environ["GITHUB_TOKEN"] for 5000/h
+    db=SocialDB(),               # SQLite cache, 4-24h TTL per kind
+    web_search_fn=my_web_search, # Tier B — any local_web_search-compatible callable
+    local_llm_fn=my_local_llm,   # qwen3:4b fast / qwen3.5:27b deep
+)
+report = analyzer.analyze_repo("https://github.com/rust-lang/rust", deep=True)
+
+print(report.verdict_markdown)
+for m in report.mentions:
+    print(f"[{m.source}] {m.title} — {m.url}")
+```
+
+#### Authentication (Q1 handoff decision)
+
+Unauth by default — 60 requests per hour, enough for personal use. Set `GITHUB_TOKEN` env var to upgrade to 5000/h; the analyzer picks it up automatically. No config file, no prompt.
+
+#### How it avoids API-key lock-in
+
+- HN: Algolia HN Search (free, unauthed)
+- Reddit: `/search.json` (free, unauthed, UA required)
+- StackOverflow: StackExchange API 2.3 (free, unauthed, 300/day)
+- dev.to: public `/api/articles` (free)
+- arXiv: Atom XML export (free)
+- Papers With Code: public v1 API (free)
+- Trending: HTML scrape of github.com/trending (no API exists)
+- GitHub REST: works unauthed at 60/h
+
+#### Cache discipline
+
+`SocialDB` caches repo metadata for 24h, commits/issues for 6h, mentions for 4h. Empty results are NOT cached — transient network errors can retry next call. All new tables share the existing `~/.scraperx/social.db` file.
+
+---
 
 ### 6. Profile, search, token extraction
 
