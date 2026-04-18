@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scraperx"
-version = "1.3.0"
-description = "Universal scraper + video intelligence — X/Twitter, YouTube, Vimeo, generic video discovery, impersonation detection via perceptual hashing. No API keys required."
+version = "1.4.0"
+description = "Universal scraper + video intelligence + GitHub deep analyzer — X/Twitter, YouTube, Vimeo, video discovery, impersonation detection, and trust-scored GitHub repo analysis with community mentions. No API keys required."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -17,6 +17,7 @@ keywords = [
     "fxtwitter", "vxtwitter", "whisper", "video-discovery",
     "impersonation-detection", "perceptual-hash", "phash",
     "no-api-keys", "osint", "fact-checking",
+    "github", "trust-score", "repo-analysis", "mentions", "trending",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
