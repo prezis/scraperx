@@ -144,21 +144,40 @@ def test_analyze_repo_validates_before_raising_not_implemented():
         analyze_repo("not-a-url")
 
 
-def test_analyze_repo_stub_raises_after_valid_url():
-    with pytest.raises(NotImplementedError) as exc:
-        analyze_repo("https://github.com/owner/repo")
-    assert "owner/repo" in str(exc.value)
-
-
 def test_github_analyzer_instance_has_expected_attrs():
-    ga = GithubAnalyzer(github_token="tok", db_path="/tmp/x.db", use_local_web=False)
-    assert ga.github_token == "tok"
-    assert ga.db_path == "/tmp/x.db"
-    assert ga.use_local_web is False
+    """After T13 wiring, the analyzer accepts dependency-injected callables."""
+    ga = GithubAnalyzer(
+        github_token="tok",
+        db=None,
+        web_search_fn=None,
+        local_llm_fn=None,
+    )
+    assert ga.api.token == "tok"
+    assert ga.db is None
+    assert ga.web_search_fn is None
+    assert ga.local_llm_fn is None
 
 
 # ---------------------------------------------------------------------------
 # Top-level re-exports (ensures wiring in scraperx/__init__.py stayed intact)
+
+
+def test_analyze_repo_pipeline_graceful_on_404(monkeypatch):
+    """T13 pipeline — when the repo is 404, analyzer returns a GithubReport
+    with a warning, never raises. Confirms the T1 guarantee survives the
+    real pipeline upgrade."""
+    from unittest.mock import patch
+
+    from scraperx.github_analyzer.github_api import RepoNotFoundError
+
+    with patch(
+        "scraperx.github_analyzer.core.GithubAPI.get_repo",
+        side_effect=RepoNotFoundError("404"),
+    ):
+        report = analyze_repo("https://github.com/nobody/nope")
+    assert report.owner == "nobody"
+    assert report.repo == "nope"
+    assert any("not found" in w.lower() for w in report.warnings)
 
 
 def test_top_level_reexports():
