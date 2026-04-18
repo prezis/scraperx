@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from scraperx.github_analyzer.mentions._http import (
     cache_or_fetch,
     http_get_json,
+    safe_float,
     safe_int,
     safe_str,
 )
@@ -61,7 +62,8 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
                         "id": d.get("id"),
                         "subreddit_subscribers": safe_int(d.get("subreddit_subscribers")),
                         "num_comments": safe_int(d.get("num_comments")),
-                        "upvote_ratio": d.get("upvote_ratio"),  # float 0.0-1.0 or None
+                        # Coerce — Reddit sometimes returns ratio as string on CDN-cached responses
+                        "upvote_ratio": safe_float(d.get("upvote_ratio")),
                     },
                 }
             )
