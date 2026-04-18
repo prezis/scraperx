@@ -55,6 +55,10 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
             answer_count = safe_int(hit.get("answer_count"))
             snippet = f"{answer_count} answers" if is_answered else "no accepted answer"
 
+            # Authority signals (v1.4.1 — already in StackExchange /search/advanced):
+            # owner.reputation = THE canonical authority signal on SO (10k+ = expert).
+            # view_count = audience size (indicates topic popularity, not opinion quality).
+            # has_accepted_answer = resolved vs. still-open question.
             out.append(
                 {
                     "source": SOURCE,
@@ -67,6 +71,9 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
                     "metadata": {
                         "tags": hit.get("tags", []),
                         "question_id": hit.get("question_id"),
+                        "asker_reputation": safe_int(owner_info.get("reputation")),
+                        "view_count": safe_int(hit.get("view_count")),
+                        "has_accepted_answer": bool(hit.get("accepted_answer_id")),
                     },
                 }
             )

@@ -36,6 +36,9 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
             object_id = hit.get("objectID")
             raw_url = hit.get("url")
             url_val = raw_url or f"https://news.ycombinator.com/item?id={object_id}"
+            # Authority signals (v1.4.1 — already in payload, was being discarded):
+            # num_comments = thread engagement depth (noisy 200-point post with 0 comments
+            #   is different from 200-point post with 150 comments debating the repo).
             out.append(
                 {
                     "source": SOURCE,
@@ -45,7 +48,10 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
                     "published_at": safe_str(hit.get("created_at")),
                     "author": safe_str(hit.get("author")),
                     "snippet": "",
-                    "metadata": {"objectID": str(object_id) if object_id else ""},
+                    "metadata": {
+                        "objectID": str(object_id) if object_id else "",
+                        "num_comments": safe_int(hit.get("num_comments")),
+                    },
                 }
             )
         return out
