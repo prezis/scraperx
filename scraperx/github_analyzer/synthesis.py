@@ -29,6 +29,7 @@ CLI never hangs on a missing GPU.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -106,10 +107,8 @@ def _authority_blurb(m: ExternalMention) -> str:
             parts.append(f"comments={nc}")
         ur = md.get("upvote_ratio")
         if ur is not None:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 parts.append(f"upvote={float(ur):.2f}")
-            except (TypeError, ValueError):
-                pass
     elif m.source == "stackoverflow":
         rep = md.get("asker_reputation")
         if rep:
@@ -139,24 +138,26 @@ def _authority_blurb(m: ExternalMention) -> str:
 def _compact_num(n) -> str:
     """1_300_000 -> '1.3M', 4_500 -> '4.5k', 42 -> '42'. Keeps prompt dense.
 
-    Simple rule: strip trailing '.0' but keep the suffix. `1_000_000 -> '1M'`,
-    `1_300_000 -> '1.3M'`, `4_500 -> '4.5k'`, `4_000 -> '4k'`.
+    Boundary chosen so values that round to 1.0M at `:.1f` promote to the
+    M tier instead of showing the parse-noise `"1000k"` (flagged by
+    code-review 2026-04-19).
     """
     try:
         n = int(n)
     except (TypeError, ValueError):
         return str(n)
-    if n >= 1_000_000:
-        num = f"{n / 1_000_000:.1f}"
-        if num.endswith(".0"):
-            num = num[:-2]
-        return f"{num}M"
-    if n >= 1_000:
+
+    if n < 1_000:
+        return str(n)
+    if n < 999_500:  # below the M-rounding boundary at :.1f
         num = f"{n / 1_000:.1f}"
         if num.endswith(".0"):
             num = num[:-2]
         return f"{num}k"
-    return str(n)
+    num = f"{n / 1_000_000:.1f}"
+    if num.endswith(".0"):
+        num = num[:-2]
+    return f"{num}M"
 
 
 def _build_prompt(report: GithubReport) -> str:

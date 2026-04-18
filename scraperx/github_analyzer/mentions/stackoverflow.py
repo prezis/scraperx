@@ -74,6 +74,8 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
                         "asker_reputation": safe_int(owner_info.get("reputation")),
                         "view_count": safe_int(hit.get("view_count")),
                         "has_accepted_answer": bool(hit.get("accepted_answer_id")),
+                        # 7 answers unaccepted ≠ 0 answers — meaningfully different signal
+                        "answer_count": safe_int(hit.get("answer_count")),
                     },
                 }
             )

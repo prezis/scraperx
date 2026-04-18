@@ -28,7 +28,6 @@ from scraperx.github_analyzer.synthesis import (
     _format_mentions,
 )
 
-
 URLOPEN_PATH = "scraperx.github_analyzer.mentions._http.urllib.request.urlopen"
 
 
@@ -54,7 +53,10 @@ def _mock_json_response(body):
         (1_500, "1.5k"),
         (4_500, "4.5k"),
         (12_345, "12.3k"),
-        (999_999, "1000k"),  # stays in k-tier just under 1M boundary
+        (950_000, "950k"),      # stays in k-tier (far enough below boundary)
+        (999_499, "999.5k"),    # boundary-adjacent, still k (not misleading "1000k")
+        (999_500, "1M"),        # boundary — rounds to 1.0M at :.1f, promotes to M
+        (999_999, "1M"),        # fix: was wrongly "1000k" in pre-review version
         (1_000_000, "1M"),
         (1_300_000, "1.3M"),
         (5_000_000, "5M"),
@@ -150,6 +152,62 @@ def test_stackoverflow_captures_reputation(mock_urlopen):
     assert m.metadata["asker_reputation"] == 12345
     assert m.metadata["view_count"] == 5000
     assert m.metadata["has_accepted_answer"] is True
+
+
+@patch(URLOPEN_PATH)
+def test_stackoverflow_captures_answer_count(mock_urlopen):
+    """An unanswered Q with 7 answers ≠ 0 answers — different signal.
+    (Code-reviewer flag, 2026-04-19)."""
+    mock_urlopen.return_value = _mock_json_response(
+        {
+            "items": [
+                {
+                    "question_id": 100,
+                    "title": "Popular but unresolved",
+                    "link": "https://stackoverflow.com/questions/100",
+                    "score": 20,
+                    "creation_date": 1700000000,
+                    "tags": ["python"],
+                    "owner": {"display_name": "x", "reputation": 500},
+                    "is_answered": False,
+                    "answer_count": 7,
+                    "view_count": 9000,
+                }
+            ]
+        }
+    )
+    m = stackoverflow_search("o", "r")[0]
+    assert m.metadata["answer_count"] == 7
+    assert m.metadata["has_accepted_answer"] is False
+
+
+@patch(URLOPEN_PATH)
+def test_reddit_coerces_string_upvote_ratio(mock_urlopen):
+    """Reddit's CDN-cached responses sometimes return upvote_ratio as string.
+    safe_float coerces so metadata type is honest (code-reviewer flag)."""
+    mock_urlopen.return_value = _mock_json_response(
+        {
+            "data": {
+                "children": [
+                    {
+                        "data": {
+                            "id": "abc",
+                            "title": "Post",
+                            "permalink": "/r/x/abc/",
+                            "subreddit": "x",
+                            "score": 10,
+                            "upvote_ratio": "0.92",  # STRING from CDN
+                            "author": "u",
+                            "created_utc": 1700000000.0,
+                        }
+                    }
+                ]
+            }
+        }
+    )
+    m = reddit_search("o", "r")[0]
+    assert m.metadata["upvote_ratio"] == 0.92
+    assert isinstance(m.metadata["upvote_ratio"], float)
 
 
 @patch(URLOPEN_PATH)

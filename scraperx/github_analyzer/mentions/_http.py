@@ -79,6 +79,21 @@ def safe_int(x, default: int = 0) -> int:
         return default
 
 
+def safe_float(x, default: float | None = None):
+    """Coerce to float; return default on None / non-numeric.
+
+    Exists because some platforms (Reddit via CDN-cached responses, per API
+    quirks) occasionally return numeric fields as strings. Keeps type
+    contract honest in metadata dicts.
+    """
+    if x is None:
+        return default
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
 def safe_str(x, default: str = "") -> str:
     """Coerce to stripped string; return default on None."""
     if x is None:
