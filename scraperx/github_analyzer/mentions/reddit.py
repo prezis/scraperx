@@ -43,6 +43,10 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
         out = []
         for child in children:
             d = child.get("data", {}) if isinstance(child, dict) else {}
+            # Authority signals (v1.4.1 — already in /search.json, was being discarded):
+            # subreddit_subscribers = platform authority (r/programming 4M ≠ r/rustjerk 50k).
+            # upvote_ratio = consensus quality (0.97 = broad agreement, 0.51 = contentious).
+            # num_comments = engagement depth (77 score / 3 comments is weaker than 77 / 150).
             out.append(
                 {
                     "source": SOURCE,
@@ -55,6 +59,9 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
                     "metadata": {
                         "subreddit": d.get("subreddit"),
                         "id": d.get("id"),
+                        "subreddit_subscribers": safe_int(d.get("subreddit_subscribers")),
+                        "num_comments": safe_int(d.get("num_comments")),
+                        "upvote_ratio": d.get("upvote_ratio"),  # float 0.0-1.0 or None
                     },
                 }
             )

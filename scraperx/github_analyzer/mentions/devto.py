@@ -49,6 +49,10 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
             if target not in search_text:
                 continue
 
+            # Authority signals (v1.4.1 — already in payload):
+            # reading_time_minutes = depth proxy (2-min blurb ≠ 20-min deep-dive).
+            # comments_count = engagement (dev.to's content-farm problem: high reactions,
+            #   zero comments = content-mill pattern).
             user_info = hit.get("user") or {}
             out.append(
                 {
@@ -59,7 +63,11 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
                     "published_at": safe_str(hit.get("published_at")),
                     "author": safe_str(user_info.get("username")),
                     "snippet": description[:280],
-                    "metadata": {"tags": tag_list},
+                    "metadata": {
+                        "tags": tag_list,
+                        "reading_time_minutes": safe_int(hit.get("reading_time_minutes")),
+                        "comments_count": safe_int(hit.get("comments_count")),
+                    },
                 }
             )
         return out

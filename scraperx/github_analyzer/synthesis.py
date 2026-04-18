@@ -58,16 +58,105 @@ _VERDICT_SYSTEM = (
 
 
 def _format_mentions(mentions: list[ExternalMention], limit: int = 8) -> str:
-    """Render mentions as a numbered list for citation."""
+    """Render mentions as a numbered list for citation, with authority-signal
+    metadata exposed so qwen can do implicit weighting (v1.4.1 — baseline
+    worker's Bitter-Lesson insight from /reason synthesis 2026-04-18).
+
+    The LLM sees per-platform authority signals already in the payload, e.g.
+    HN `num_comments`, Reddit `subreddit_subscribers` + `upvote_ratio`,
+    StackOverflow `asker_reputation`, dev.to `reading_time_minutes` /
+    `comments_count`. No hardcoded weighting math — the LLM is the weighter.
+    """
     if not mentions:
         return "(no external mentions found)"
     rows = []
     for i, m in enumerate(mentions[:limit], start=1):
-        # Keep each mention compact — qwen context is precious
+        authority = _authority_blurb(m)
+        # Keep each row under ~200 chars so qwen context stays lean at limit=8.
         rows.append(
-            f"[{i}] {m.source}: {m.title[:80]} — score={m.score} — {m.url}"
+            f"[{i}] {m.source}{authority}: {m.title[:80]} — score={m.score} — {m.url}"
         )
     return "\n".join(rows)
+
+
+def _authority_blurb(m: ExternalMention) -> str:
+    """Per-platform authority-signal blurb inserted after source name.
+
+    Format: "(key1=val1, key2=val2)" or "" if nothing to show.
+    Keep dense — qwen reads faster than it generates, density > verbosity.
+    Returns empty string (no parens) when metadata is empty so the prompt
+    doesn't print "hn(): ...".
+    """
+    md = m.metadata or {}
+    parts: list[str] = []
+
+    if m.source == "hn":
+        c = md.get("num_comments")
+        if c:
+            parts.append(f"comments={c}")
+    elif m.source == "reddit":
+        sub = md.get("subreddit")
+        subs = md.get("subreddit_subscribers")
+        if sub and subs:
+            parts.append(f"r/{sub} {_compact_num(subs)} subs")
+        elif sub:
+            parts.append(f"r/{sub}")
+        nc = md.get("num_comments")
+        if nc:
+            parts.append(f"comments={nc}")
+        ur = md.get("upvote_ratio")
+        if ur is not None:
+            try:
+                parts.append(f"upvote={float(ur):.2f}")
+            except (TypeError, ValueError):
+                pass
+    elif m.source == "stackoverflow":
+        rep = md.get("asker_reputation")
+        if rep:
+            parts.append(f"rep={_compact_num(rep)}")
+        vc = md.get("view_count")
+        if vc:
+            parts.append(f"views={_compact_num(vc)}")
+        if md.get("has_accepted_answer"):
+            parts.append("answered=Y")
+    elif m.source == "devto":
+        rtm = md.get("reading_time_minutes")
+        if rtm:
+            parts.append(f"read={rtm}min")
+        cc = md.get("comments_count")
+        if cc:
+            parts.append(f"comments={cc}")
+    elif m.source == "semantic_web":
+        host = md.get("host")
+        if host:
+            parts.append(host)
+
+    if not parts:
+        return ""
+    return f" ({', '.join(parts)})"
+
+
+def _compact_num(n) -> str:
+    """1_300_000 -> '1.3M', 4_500 -> '4.5k', 42 -> '42'. Keeps prompt dense.
+
+    Simple rule: strip trailing '.0' but keep the suffix. `1_000_000 -> '1M'`,
+    `1_300_000 -> '1.3M'`, `4_500 -> '4.5k'`, `4_000 -> '4k'`.
+    """
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return str(n)
+    if n >= 1_000_000:
+        num = f"{n / 1_000_000:.1f}"
+        if num.endswith(".0"):
+            num = num[:-2]
+        return f"{num}M"
+    if n >= 1_000:
+        num = f"{n / 1_000:.1f}"
+        if num.endswith(".0"):
+            num = num[:-2]
+        return f"{num}k"
+    return str(n)
 
 
 def _build_prompt(report: GithubReport) -> str:
