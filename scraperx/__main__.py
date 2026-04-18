@@ -57,6 +57,14 @@ def main():
         if subcmd == "discover":
             _main_discover()
             return
+        if subcmd == "github":
+            from scraperx.github_analyzer.cli import main_github
+
+            sys.exit(main_github())
+        if subcmd == "trending":
+            from scraperx.github_analyzer.cli import main_trending
+
+            sys.exit(main_trending())
         if subcmd == "doctor":
             from scraperx.doctor import main as doctor_main
 
