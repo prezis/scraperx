@@ -86,7 +86,68 @@ CREATE TABLE IF NOT EXISTS verified_avatars (
     recorded_at INTEGER NOT NULL,
     PRIMARY KEY (handle, recorded_at)
 );
+
+-- github_analyzer: cache for per-repo GitHub API payloads. One row per
+-- (full_name, kind) pair so a single table covers repo / contributors /
+-- commits / releases / readme / workflows with per-kind TTL.
+CREATE TABLE IF NOT EXISTS github_repo_cache (
+    full_name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    fetched_at REAL NOT NULL,
+    ttl_seconds INTEGER NOT NULL DEFAULT 86400,
+    PRIMARY KEY (full_name, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_github_repo_cache_full ON github_repo_cache(full_name);
+
+-- github_analyzer: cache for /forks listings (serialized JSON). One row per
+-- parent repo; list of forks goes in payload.
+CREATE TABLE IF NOT EXISTS github_fork_cache (
+    parent_full_name TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    fetched_at REAL NOT NULL,
+    ttl_seconds INTEGER NOT NULL DEFAULT 21600
+);
+
+-- github_analyzer: cache for external-platform mention searches. Keyed on
+-- (source, query_hash). Source ∈ {hn,reddit,stackoverflow,devto,arxiv,pwc,
+-- semantic_web,x,youtube}. Hash normalises the actual query string.
+CREATE TABLE IF NOT EXISTS github_mentions_cache (
+    source TEXT NOT NULL,
+    query_hash TEXT NOT NULL,
+    query_text TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    fetched_at REAL NOT NULL,
+    ttl_seconds INTEGER NOT NULL DEFAULT 14400,
+    PRIMARY KEY (source, query_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_github_mentions_source ON github_mentions_cache(source);
 """
+
+# TTL defaults (seconds) — override per-call via save_repo_cache(..., ttl=N).
+# Intentionally module-level constants so callers can import & compare.
+GITHUB_TTL_REPO = 86400          # 24h — metadata, topics, license, stars
+GITHUB_TTL_CONTRIBUTORS = 86400  # 24h — rarely changes
+GITHUB_TTL_RELEASES = 86400      # 24h
+GITHUB_TTL_README = 86400        # 24h
+GITHUB_TTL_WORKFLOWS = 86400     # 24h — CI config
+GITHUB_TTL_COMMITS = 21600       # 6h  — commits and issues shift faster
+GITHUB_TTL_ISSUES = 21600        # 6h
+GITHUB_TTL_FORKS = 21600         # 6h
+GITHUB_TTL_MENTIONS = 14400      # 4h  — external platforms, most volatile
+GITHUB_TTL_ADVISORIES = 21600    # 6h
+
+# Map `kind` → default TTL used by save_repo_cache when ttl is None
+_GITHUB_KIND_TTL = {
+    "repo": GITHUB_TTL_REPO,
+    "contributors": GITHUB_TTL_CONTRIBUTORS,
+    "releases": GITHUB_TTL_RELEASES,
+    "readme": GITHUB_TTL_README,
+    "workflows": GITHUB_TTL_WORKFLOWS,
+    "commits": GITHUB_TTL_COMMITS,
+    "issues": GITHUB_TTL_ISSUES,
+    "advisories": GITHUB_TTL_ADVISORIES,
+}
 
 
 class SocialDB:
@@ -285,6 +346,144 @@ class SocialDB:
         if time.time() - row["searched_at"] > row["ttl_seconds"]:
             return None
         return json.loads(row["result_tweet_ids"])
+
+    # ------------------------------------------------------------------
+    # GitHub analyzer cache
+    # ------------------------------------------------------------------
+    # Shape contract for all github_* methods:
+    #   - save_*: always (INSERT OR REPLACE) + commit
+    #   - get_*:  returns None on miss OR when row age exceeds ttl_seconds
+    #             (stored on the row, so TTL travels with the cached value)
+    #   - payload is JSON-serializable (list | dict | primitives)
+
+    def save_repo_cache(
+        self,
+        full_name: str,
+        kind: str,
+        payload,
+        ttl: int | None = None,
+    ) -> None:
+        """Cache a per-repo payload keyed on (full_name, kind).
+
+        kind ∈ {"repo","contributors","commits","releases","readme",
+                 "workflows","issues","advisories"}.
+
+        If ttl is None, the per-kind default in _GITHUB_KIND_TTL applies
+        (falls back to 24h for unknown kinds).
+        """
+        effective_ttl = ttl if ttl is not None else _GITHUB_KIND_TTL.get(kind, GITHUB_TTL_REPO)
+        self._conn.execute(
+            """INSERT OR REPLACE INTO github_repo_cache
+               (full_name, kind, payload, fetched_at, ttl_seconds)
+               VALUES (?, ?, ?, ?, ?)""",
+            (full_name, kind, json.dumps(payload), time.time(), effective_ttl),
+        )
+        self._conn.commit()
+
+    def get_repo_cache(self, full_name: str, kind: str):
+        """Return the cached payload (JSON-decoded) or None if missing/stale."""
+        row = self._conn.execute(
+            "SELECT payload, fetched_at, ttl_seconds FROM github_repo_cache "
+            "WHERE full_name = ? AND kind = ?",
+            (full_name, kind),
+        ).fetchone()
+        if row is None:
+            return None
+        if time.time() - row["fetched_at"] > row["ttl_seconds"]:
+            return None
+        return json.loads(row["payload"])
+
+    def save_fork_cache(
+        self,
+        parent_full_name: str,
+        payload,
+        ttl: int | None = None,
+    ) -> None:
+        """Cache the fork list for a parent repo."""
+        self._conn.execute(
+            """INSERT OR REPLACE INTO github_fork_cache
+               (parent_full_name, payload, fetched_at, ttl_seconds)
+               VALUES (?, ?, ?, ?)""",
+            (
+                parent_full_name,
+                json.dumps(payload),
+                time.time(),
+                ttl if ttl is not None else GITHUB_TTL_FORKS,
+            ),
+        )
+        self._conn.commit()
+
+    def get_fork_cache(self, parent_full_name: str):
+        row = self._conn.execute(
+            "SELECT payload, fetched_at, ttl_seconds FROM github_fork_cache "
+            "WHERE parent_full_name = ?",
+            (parent_full_name,),
+        ).fetchone()
+        if row is None:
+            return None
+        if time.time() - row["fetched_at"] > row["ttl_seconds"]:
+            return None
+        return json.loads(row["payload"])
+
+    def save_mentions_cache(
+        self,
+        source: str,
+        query: str,
+        payload,
+        ttl: int | None = None,
+    ) -> None:
+        """Cache an external-platform mention search result."""
+        # Normalise query first so "Yt-Dlp" / "  yt-dlp  " collide through
+        # _query_hash's inner strip+lower (which would otherwise only apply
+        # to the composite's outside whitespace, not the embedded query).
+        qh = self._query_hash(f"{source}::{query.strip().lower()}")
+        self._conn.execute(
+            """INSERT OR REPLACE INTO github_mentions_cache
+               (source, query_hash, query_text, payload, fetched_at, ttl_seconds)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                source,
+                qh,
+                query,
+                json.dumps(payload),
+                time.time(),
+                ttl if ttl is not None else GITHUB_TTL_MENTIONS,
+            ),
+        )
+        self._conn.commit()
+
+    def get_mentions_cache(self, source: str, query: str):
+        # Normalise query first so "Yt-Dlp" / "  yt-dlp  " collide through
+        # _query_hash's inner strip+lower (which would otherwise only apply
+        # to the composite's outside whitespace, not the embedded query).
+        qh = self._query_hash(f"{source}::{query.strip().lower()}")
+        row = self._conn.execute(
+            "SELECT payload, fetched_at, ttl_seconds FROM github_mentions_cache "
+            "WHERE source = ? AND query_hash = ?",
+            (source, qh),
+        ).fetchone()
+        if row is None:
+            return None
+        if time.time() - row["fetched_at"] > row["ttl_seconds"]:
+            return None
+        return json.loads(row["payload"])
+
+    def purge_expired_github_cache(self) -> int:
+        """Delete all expired rows across the 3 github caches. Returns total deletes.
+
+        Safe to call periodically; cache reads already enforce TTL on the way
+        out, but long-lived DBs accumulate stale rows that this sweeps.
+        """
+        now = time.time()
+        total = 0
+        for table in ("github_repo_cache", "github_fork_cache", "github_mentions_cache"):
+            cur = self._conn.execute(
+                f"DELETE FROM {table} WHERE (? - fetched_at) > ttl_seconds",
+                (now,),
+            )
+            total += cur.rowcount or 0
+        self._conn.commit()
+        return total
 
     # ------------------------------------------------------------------
     # Lifecycle
