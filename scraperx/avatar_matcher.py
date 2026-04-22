@@ -97,7 +97,7 @@ class _StrictRedirectHandler(HTTPRedirectHandler):
     the allowlist on every hop.
     """
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not _url_is_allowed(newurl):
             raise URLError(f"redirect to non-allowlisted host blocked: {urlparse(newurl).hostname}")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
@@ -191,10 +191,10 @@ class AvatarMatcher:
                 self._conn = None
             raise
 
-    def __enter__(self) -> "AvatarMatcher":
+    def __enter__(self) -> AvatarMatcher:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ARG002
+    def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
     def close(self) -> None:
