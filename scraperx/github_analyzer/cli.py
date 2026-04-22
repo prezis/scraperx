@@ -18,6 +18,7 @@ from scraperx.github_analyzer.core import (
     InvalidRepoUrlError,
 )
 from scraperx.github_analyzer.schemas import GithubReport
+from scraperx.github_analyzer.telemetry import prompt_and_log_verdict
 from scraperx.github_analyzer.trending import fetch_trending
 from scraperx.social_db import SocialDB
 
@@ -134,6 +135,13 @@ def main_github(argv: list[str] | None = None) -> int:
         "--no-cache", action="store_true",
         help="Disable SQLite cache for this run",
     )
+    parser.add_argument(
+        "--log-verdict", action="store_true",
+        help=(
+            "Append scoring event to ~/.scraperx/verdicts.jsonl "
+            "and optionally prompt for agree/disagree feedback."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     args = parser.parse_args(argv)
 
@@ -162,6 +170,10 @@ def main_github(argv: list[str] | None = None) -> int:
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False, default=str))
     else:
         print(render_markdown(report))
+
+    # Telemetry — runs after output so it doesn't delay the user
+    if args.log_verdict:
+        prompt_and_log_verdict(report)
     return 0
 
 

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-04-18
+
+Telemetry: `--log-verdict` flag + agree/disagree corpus builder for calibrating v1.5.0.
+
+### Added
+
+- **`scraperx/github_analyzer/telemetry.py`** — `log_verdict(report, feedback=None)` appends one JSONL event to `~/.scraperx/verdicts.jsonl`. Fields: `timestamp`, `repo`, `url`, `overall`, `sub_scores` (all 4), `mentions_count`, `warnings_count`, `warnings[:5]`, `scraperx_version`, `feedback`. Returns `True/False` — never raises. Creates `~/.scraperx/` automatically.
+- **`prompt_and_log_verdict(report)`** — interactive wrapper for CLI use. Logs the scoring event first (feedback-free), then prompts `Agree? [y/n/<reason>] (Enter to skip)` on stderr (safe for `--json` mode). User response coerced: `y/yes/agree/tak → "agree"`, `n/no/disagree/nie → "disagree"`, anything else stored as free-text.  Non-TTY stdin (pipes) is detected and silently skipped.
+- **`scraperx github --log-verdict`** — new CLI flag. Fires `prompt_and_log_verdict` after output so it never delays the report rendering.
+- **`_normalise_feedback(raw)`** — canonical alias coercion. Handles Polish (`tak`/`nie`) and common informal aliases (`ok`, `yep`, `nope`).
+- **44 new tests** in `tests/test_github_telemetry.py` covering all feedback aliases, JSONL field correctness, multi-event append, warning cap, permission-error graceful return, non-TTY auto-skip, and timestamp ISO-8601-Z round-trip.
+
+### Changed
+
+- **`__version__` bumped to `1.4.2`** (1.4.1 was the metadata-enrichment commit; 1.4.2 adds telemetry).
+- **`cli.py`** imports `prompt_and_log_verdict` from `telemetry`; `log_verdict` import removed (unused at CLI level — CLI always uses the interactive wrapper).
+
 ## [1.4.0] — 2026-04-18
 
 Major feature release: deep GitHub repository trust analysis with scored verdicts, community mention aggregation across 6 dedicated platforms + 6 generic sites, GitHub Trending scraper, and graceful GPU-backed synthesis.
