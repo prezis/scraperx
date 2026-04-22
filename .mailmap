@@ -1,0 +1,4 @@
+# Canonical author mapping — GitHub honours this for attribution display.
+# Rewrites the 5 early commits (scraperx v1.0.0/v1.1.0/thread-walk/search/errors)
+# that were made before global git config was corrected, without force-push.
+Przemyslaw Palyska <przemyslaw.palyska@gmail.com> <noreply@users.noreply.github.com>
