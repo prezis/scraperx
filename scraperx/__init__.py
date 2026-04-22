@@ -6,7 +6,11 @@ from scraperx.github_analyzer import (
     GithubAnalyzer,
     GithubReport,
     InvalidRepoUrlError,
+)
+from scraperx.github_analyzer import (
     analyze_repo as analyze_github_repo,
+)
+from scraperx.github_analyzer import (
     parse_repo_url as parse_github_repo_url,
 )
 from scraperx.video_discovery import VideoRef, discover_videos, fetch_any_video_transcript
@@ -23,7 +27,7 @@ from .social_db import SocialDB
 from .thread import Thread, get_thread
 from .token_extractor import TokenMention, extract_token_mentions
 
-__version__ = "1.4.0"
+__version__ = "1.4.2"
 
 __all__ = [
     "AvatarMatcher",
