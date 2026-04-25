@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.3] — 2026-04-25
+
+Bug-fix release: production-grade SQLite WAL hygiene across all storage callsites. Important for anyone running scraperx components as long-lived daemons (BMW corpus ingester, Reddit/KBA/forum scrapers, GitHub analyzer in batch mode) — closes the unbounded-WAL disaster vector.
+
 ### Added
 
 - **`scraperx/_sqlite_pragmas.py`** — shared `apply_pragmas(conn)` helper that applies the production-grade WAL hygiene stack (`journal_mode=WAL`, `journal_size_limit=64MB`, `synchronous=NORMAL`, `busy_timeout=5000`, `foreign_keys=ON`, `mmap_size=256MB`, `temp_store=MEMORY`). Idempotent. Per-connection PRAGMAs are LOST on close, so the helper MUST run on every new connection — that's why it's a function, not a one-time DB header write.
