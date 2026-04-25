@@ -243,6 +243,97 @@ ready, just add the adapters.
 
 ---
 
+## Future paths — methods we explored but haven't built
+
+These are documented architectural roads we know how to travel; PR contributions welcome
+if you hit one of these vertical needs (BMW or otherwise — the pattern generalizes).
+
+### Cross-language corpus enrichment
+Body text is stored in source language. Translation is intentionally lazy
+(`translated_pl` and `translated_en` columns sit empty until a separate enrichment
+pass populates them). The full design:
+
+- Polish ↔ English: `polyglot` MCP tool (`mcp__polyglot__translate`) on local GPU
+- German → English / Polish: qwen3.5:27b on RTX 5090 (handles mechanic vocabulary well)
+- Russian → English / Polish: qwen3.5:27b
+- Chinese → English: qwen3.5:27b
+
+Storage strategy: search index operates on `translated_en` (lingua franca);
+UI surfaces `translated_pl` for Polish operators. Original `body_text` always
+preserved. Re-translation possible without re-scraping (raw_payload in JSON).
+
+### Common Crawl historical mining
+For sources that block live scraping but were freely indexed in the past
+(e.g. drive2.ru's `/l/<id>` logbook entries before they hardened DDoS-Guard,
+or motor-talk.de threads from before Burda's 2024 ai-train=no policy), the
+Common Crawl monthly buckets (CC-MAIN-*) contain historical snapshots that
+sidestep both live ToS-active-fetch and Cloudflare/DDoS-Guard challenges.
+
+Pattern: filter `url:<host>/<path-prefix>*` from CC index, fetch WARC records
+for matched URLs, parse with the same engine modules built here. No live
+hits to the operator's infrastructure → significantly weaker legal exposure
+profile than live scraping (purely-historical-data, third-party indexed).
+
+### YouTube mechanic transcripts
+Mechanic YouTube channels (Pro Tech Studio DE, BMW Diagnose Polska, FCP Euro
+EN, hundreds more) carry detailed repair walkthroughs.  scraperx already has
+`youtube_scraper.py` and `_transcript_common.py` for this. A natural
+extension would be `bmw_corpus/youtube/core.py`: takes channel ID list,
+fetches video metadata + auto-caption (preferred) or Whisper transcription
+(fallback for caption-less videos), normalizes to corpus schema.
+
+Risk to navigate: YouTube ToS is friendly to public auto-captions; Whisper-
+on-extracted-mp3 is gray. Use closed-caption track when available; only fall
+back to Whisper when CC missing.
+
+### XenForo + Discourse engines
+We built the vBulletin engine (vB3 + vB4). Same shape applies to:
+- **XenForo** — used by e46fanatics + many BMW/automotive sub-communities; sitemap-driven, native "Solution" / best-answer markers (perfect for closing-post weighting)
+- **Discourse** — used by some Reddit-replacement BMW communities; clean JSON API at `/t/<id>.json` makes parsing trivial
+
+Engine module shape stays identical: `parse_subforum(html, base) -> [ThreadRef]`
+and `parse_thread(html, base, thread_id) -> [ForumPost]`. The hard work is
+the per-engine selector mapping; the orchestration is shared.
+
+### Closing-post / best-answer detection
+For ORPO training pair construction from forum threads, the "what worked"
+post should weigh ~3× intermediate posts. Per-engine notes:
+
+- **XenForo** native "Solution" badge → `metadata_json.is_solution = true`
+- **Reddit** → `upvote_ratio + num_comments` proxy
+- **vBulletin** → heuristic: last-post-by-OP + thanks/like keywords + reply-velocity decay (no native flag)
+
+The closing-post score is independent of source engine and should live in a
+shared post-processing job, not in the per-source adapters.
+
+### Cross-source semantic deduplication
+KBA + NHTSA frequently cover the SAME global recall (e.g. EGR campaign
+affecting both US and DE markets). We currently store 2 rows per underlying
+defect.  A semantic dedup pass — sentence-transformer embeddings + cosine
+similarity threshold — could cluster near-identical bodies and link via
+`metadata_json.duplicate_of` field (don't delete; preserve provenance).
+
+### Manufacturer service docs
+Workshop manuals and BMW ETK part catalog are authoritative diagnostic
+sources but copyright-protected. Path forward requires the workshop's
+existing BMW dealer relationship (most independents have ETK access via
+their parts supplier). Out of scope for purely-public corpus build.
+
+---
+
+## Where the unbuilt ideas track themselves
+
+Living backlog with progress bars (kept in user's local wiki, not in this
+repo):
+- `~/ai/global-graph/projects/bmw-corpus-backlog.md`
+
+Each idea above has a row with `[██░░░░░░░░] 20%` style status. Items move
+to ✅ SHIPPED when complete, to ⚰️ BURIED with a reason if abandoned.
+The goal: nothing falls through the cracks; every "we should do X" idea
+either gets done or gets explicitly retired with a paragraph explaining why.
+
+---
+
 ## Translation enrichment (future)
 
 Body text is stored in source language. A separate enrichment pass
