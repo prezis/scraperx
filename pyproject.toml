@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scraperx"
-version = "1.4.2"
+version = "1.4.3"
 description = "Universal scraper + video intelligence + GitHub deep analyzer — X/Twitter, YouTube, Vimeo, video discovery, impersonation detection, and trust-scored GitHub repo analysis with community mentions. No API keys required."
 readme = "README.md"
 license = {text = "MIT"}
