@@ -158,7 +158,10 @@ class SocialDB:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._conn = sqlite3.connect(self.db_path)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        # Hardened WAL PRAGMA stack (1.4.3+) — closes the unbounded-WAL vector
+        # for long-running daemons. See _sqlite_pragmas.py for rationale.
+        from scraperx._sqlite_pragmas import apply_pragmas
+        apply_pragmas(self._conn)
         self._conn.executescript(_SCHEMA)
 
     # ------------------------------------------------------------------

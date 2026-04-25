@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`scraperx/_sqlite_pragmas.py`** — shared `apply_pragmas(conn)` helper that applies the production-grade WAL hygiene stack (`journal_mode=WAL`, `journal_size_limit=64MB`, `synchronous=NORMAL`, `busy_timeout=5000`, `foreign_keys=ON`, `mmap_size=256MB`, `temp_store=MEMORY`). Idempotent. Per-connection PRAGMAs are LOST on close, so the helper MUST run on every new connection — that's why it's a function, not a one-time DB header write.
+- **`tests/test_sqlite_pragmas.py`** — 7 tests covering the helper itself + end-to-end PRAGMA verification on `SocialDB`, `AvatarMatcher`, and `VerifiedAvatarRegistry`.
+
+### Fixed
+
+- **Closes the unbounded-WAL disaster vector** for long-running scraperx daemons (BMW corpus ingester, Reddit/KBA/forum scrapers running 24/7). Pre-1.4.3, `~/.scraperx/social.db` had `journal_size_limit=-1` (uncapped) — same root cause that produced an 87 GB WAL on a sister project. With `journal_size_limit=64MB` + `wal_autocheckpoint` defaults, the WAL is bounded by design.
+- **`scraperx/social_db.py`** `SocialDB.__init__`: was setting only `PRAGMA journal_mode=WAL`. Now applies the full 7-PRAGMA stack via `apply_pragmas()`.
+- **`scraperx/avatar_matcher.py`** `AvatarMatcher.__init__`: was setting only `PRAGMA journal_mode=WAL`. Now applies the full stack.
+- **`scraperx/avatar_matcher.py`** `VerifiedAvatarRegistry.__init__`: was setting **NO PRAGMAs at all** — implicitly assumed another consumer (`SocialDB` / `AvatarMatcher`) had opened the shared `~/.scraperx/social.db` first. That assumption broke whenever a fresh process imported `VerifiedAvatarRegistry` standalone (e.g. the GitHub analyzer telemetry path). Now applies the full stack on every connect.
+
+### Notes
+
+The fix is fully additive — no schema migration, no behaviour change beyond performance + safety. Existing DB files keep working; the WAL bound only takes effect on the next checkpoint after upgrade.
+
+Research grounding (2026): loke.dev "20GB WAL File That Shouldn't Exist", oneuptime "How to Set Up SQLite for Production Use", powersync "SQLite Optimizations For Ultra High-Performance", phiresky tune.md, sqlite.org/pragma.html.
+
 ## [1.4.2] — 2026-04-18
 
 Telemetry: `--log-verdict` flag + agree/disagree corpus builder for calibrating v1.5.0.
