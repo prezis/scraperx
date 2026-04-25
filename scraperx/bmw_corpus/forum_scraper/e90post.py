@@ -31,7 +31,7 @@ from scraperx.bmw_corpus.forum_scraper.engines.vbulletin import (
 
 log = logging.getLogger(__name__)
 
-BASE = "https://e90post.com"
+BASE = "https://www.e90post.com"  # 2026-04-25: non-www returns empty body
 
 # Curated subforum IDs from e90post (verified live during recon).
 # `f` query param. Names from the front page.
