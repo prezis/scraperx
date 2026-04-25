@@ -182,8 +182,11 @@ class AvatarMatcher:
         try:
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
-            # WAL so AvatarMatcher + VerifiedAvatarRegistry can share the same db file
-            self._conn.execute("PRAGMA journal_mode=WAL")
+            # Hardened WAL PRAGMA stack (1.4.3+) so AvatarMatcher +
+            # VerifiedAvatarRegistry share consistent settings. See
+            # _sqlite_pragmas.py for rationale.
+            from scraperx._sqlite_pragmas import apply_pragmas
+            apply_pragmas(self._conn)
             _init_schema(self._conn)
         except Exception:
             if self._conn is not None:
@@ -272,6 +275,12 @@ class VerifiedAvatarRegistry:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._conn = sqlite3.connect(self.db_path)
         self._conn.row_factory = sqlite3.Row
+        # Hardened WAL PRAGMA stack (1.4.3+). Previously this class set NO
+        # pragmas — it relied on whichever connection opened the DB first.
+        # That assumption broke whenever a fresh process imported this class
+        # before SocialDB / AvatarMatcher.
+        from scraperx._sqlite_pragmas import apply_pragmas
+        apply_pragmas(self._conn)
         _init_schema(self._conn)
 
     def close(self) -> None:
