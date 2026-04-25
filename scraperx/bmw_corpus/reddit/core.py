@@ -46,18 +46,17 @@ TIMEOUT_S = 15
 THROTTLE_S = 1.5  # 1 req per 1.5s = ~40 req/min, well under 60 limit
 
 # Curated subreddits — order = priority for time budget
+# 2026-04-25: removed BMWi, X3, X5 (404), E36 (403 with this UA — drop until OAuth)
+# Verified live via HTTP HEAD with USER_AGENT before this edit.
+# Future-add candidates (verified 200 OK): E39, E92, BmwTech.
 BMW_SUBS = [
     "BMW",
     "E46",
-    "E36",
     "E30",
     "E90",
     "E60",
     "F30",
     "G80",
-    "BMWi",
-    "X3",
-    "X5",
     "BMWmotorrad",  # motorcycles, but mechanical content
 ]
 
