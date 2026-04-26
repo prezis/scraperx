@@ -38,7 +38,7 @@ classifiers = [
 twscrape = ["twscrape>=0.12"]
 whisper = ["faster-whisper>=1.2.1"]
 vision = ["imagehash>=4.3.2", "Pillow>=12.2.0"]
-video-discovery = ["beautifulsoup4>=4.12"]
+video-discovery = ["beautifulsoup4>=4.14.3"]
 blockchain = ["playwright>=1.58.0"]
 tv-resolve = ["tvdatafeed>=2.1.0"]
 dev = ["pytest>=9.0.3", "pytest-cov>=4.0"]
