@@ -65,6 +65,10 @@ def main():
             from scraperx.github_analyzer.cli import main_trending
 
             sys.exit(main_trending())
+        if subcmd == "gh-discover":
+            from scraperx.gh_discover import main_gh_discover
+
+            sys.exit(main_gh_discover())
         if subcmd == "doctor":
             from scraperx.doctor import main as doctor_main
 
