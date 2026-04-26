@@ -18,6 +18,7 @@ from scraperx.vimeo_scraper import VimeoResult, VimeoScraper, parse_vimeo_url
 
 from .fetch import FetchResult, smart_fetch
 from .gh_discover import RepoCandidate, discover_repos
+from .tv_symbol_resolver import SymbolResolution, resolve_symbol
 from .profile import XProfile, get_profile
 from .scraper import Tweet, TweetNotFoundError, XScraper
 from .screenshot import (
@@ -29,7 +30,7 @@ from .social_db import SocialDB
 from .thread import Thread, get_thread
 from .token_extractor import TokenMention, extract_token_mentions
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 __all__ = [
     "AvatarMatcher",
@@ -40,6 +41,7 @@ __all__ = [
     "PlaywrightNotAvailable",
     "RepoCandidate",
     "SocialDB",
+    "SymbolResolution",
     "Thread",
     "ThreadAuthenticity",
     "TokenMention",
@@ -61,6 +63,7 @@ __all__ = [
     "get_thread",
     "parse_github_repo_url",
     "parse_vimeo_url",
+    "resolve_symbol",
     "screenshot_url",
     "search_tweets",
     "smart_fetch",

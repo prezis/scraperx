@@ -69,6 +69,10 @@ def main():
             from scraperx.gh_discover import main_gh_discover
 
             sys.exit(main_gh_discover())
+        if subcmd == "tv-resolve":
+            from scraperx.tv_symbol_resolver import main_tv_resolve
+
+            sys.exit(main_tv_resolve())
         if subcmd == "doctor":
             from scraperx.doctor import main as doctor_main
 
