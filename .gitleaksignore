@@ -1,0 +1,6 @@
+# .gitleaksignore — confirmed false positives (auto-generated 2026-04-26)
+# Triaged: test fixtures (0xabcdef placeholders), upstream fork code, public on-chain addresses, dev tokens.
+# Format: <commit>:<file>:<rule>:<startline>  (gitleaks fingerprint)
+
+7a396da7d18004bf61a0ed0b69145e2bbeb62098:tests/test_token_extractor.py:generic-api-key:105
+7a396da7d18004bf61a0ed0b69145e2bbeb62098:tests/test_token_extractor.py:generic-api-key:119
