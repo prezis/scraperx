@@ -138,6 +138,23 @@ CREATE TABLE IF NOT EXISTS web_fetch_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_web_fetch_url ON web_fetch_cache(url);
 CREATE INDEX IF NOT EXISTS idx_web_fetch_fetched_at ON web_fetch_cache(fetched_at);
+
+-- tv_symbol_resolver: per-(ticker,exchange) probe cache. Includes a NEGATIVE
+-- TTL — known-empty symbols (e.g. CBOE put/call ratios that simply have no
+-- historical bars on tvDatafeed) get stored with status=empty_no_data so the
+-- next call doesn't re-probe for hours.
+-- Status legal values: resolved | empty_no_data | not_found
+CREATE TABLE IF NOT EXISTS tv_symbol_cache (
+    cache_key TEXT PRIMARY KEY,        -- f"{ticker.upper()}:{exchange.upper()}"
+    ticker TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    status TEXT NOT NULL,
+    last_checked REAL NOT NULL,
+    ttl_seconds INTEGER NOT NULL DEFAULT 86400,
+    error_msg TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tv_symbol_ticker ON tv_symbol_cache(ticker);
+CREATE INDEX IF NOT EXISTS idx_tv_symbol_status ON tv_symbol_cache(status);
 """
 
 # TTL defaults (seconds) — override per-call via save_repo_cache(..., ttl=N).
