@@ -16,6 +16,7 @@ from scraperx.github_analyzer import (
 from scraperx.video_discovery import VideoRef, discover_videos, fetch_any_video_transcript
 from scraperx.vimeo_scraper import VimeoResult, VimeoScraper, parse_vimeo_url
 
+from .fetch import FetchResult, smart_fetch
 from .profile import XProfile, get_profile
 from .scraper import Tweet, TweetNotFoundError, XScraper
 from .screenshot import (
@@ -27,10 +28,11 @@ from .social_db import SocialDB
 from .thread import Thread, get_thread
 from .token_extractor import TokenMention, extract_token_mentions
 
-__version__ = "1.4.3"
+__version__ = "1.5.0"
 
 __all__ = [
     "AvatarMatcher",
+    "FetchResult",
     "GithubAnalyzer",
     "GithubReport",
     "InvalidRepoUrlError",
@@ -58,4 +60,5 @@ __all__ = [
     "parse_vimeo_url",
     "screenshot_url",
     "search_tweets",
+    "smart_fetch",
 ]
