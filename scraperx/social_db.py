@@ -122,6 +122,22 @@ CREATE TABLE IF NOT EXISTS github_mentions_cache (
     PRIMARY KEY (source, query_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_github_mentions_source ON github_mentions_cache(source);
+
+-- fetch.smart_fetch: per-URL cache for the universal Jina/urllib/Playwright
+-- fetch cascade. Keyed on sha256(url) so callers don't have to normalize.
+-- One row per fetched URL; mode_used records which cascade leg succeeded.
+CREATE TABLE IF NOT EXISTS web_fetch_cache (
+    url_hash TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    content TEXT NOT NULL,
+    mode_used TEXT NOT NULL,
+    fetched_at REAL NOT NULL,
+    ttl_seconds INTEGER NOT NULL DEFAULT 86400,
+    http_status INTEGER,
+    elapsed_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_web_fetch_url ON web_fetch_cache(url);
+CREATE INDEX IF NOT EXISTS idx_web_fetch_fetched_at ON web_fetch_cache(fetched_at);
 """
 
 # TTL defaults (seconds) — override per-call via save_repo_cache(..., ttl=N).
@@ -136,6 +152,10 @@ GITHUB_TTL_ISSUES = 21600        # 6h
 GITHUB_TTL_FORKS = 21600         # 6h
 GITHUB_TTL_MENTIONS = 14400      # 4h  — external platforms, most volatile
 GITHUB_TTL_ADVISORIES = 21600    # 6h
+
+# fetch.smart_fetch: 24h is a sane default for "did this URL change today?"
+# research workloads; callers can override per-call.
+WEB_FETCH_TTL = 86400            # 24h — generic web pages
 
 # Map `kind` → default TTL used by save_repo_cache when ttl is None
 _GITHUB_KIND_TTL = {
