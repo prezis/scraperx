@@ -219,3 +219,40 @@ class GithubAPI:
             f"/repos/{owner}/{repo}/security-advisories",
             {"per_page": per_page},
         )
+
+    def search_repositories(
+        self,
+        query: str,
+        *,
+        sort: str = "stars",
+        order: str = "desc",
+        per_page: int = 30,
+        page: int = 1,
+    ) -> dict:
+        """GET /search/repositories — repo discovery via GitHub's search API.
+
+        Args:
+            query: GitHub search query string. Supports the qualifiers documented
+                at https://docs.github.com/search-github/searching-on-github/searching-for-repositories
+                (topic:X, stars:>N, pushed:>YYYY-MM-DD, language:Y, etc).
+            sort: One of "stars", "forks", "help-wanted-issues", "updated".
+                Default "stars" — quality bar leans on community popularity.
+            order: "desc" (default) or "asc".
+            per_page: 1-100. GitHub caps the API at 1000 total results regardless
+                of pagination, so > 30 only helps for narrow queries.
+            page: 1-indexed page number for pagination.
+
+        Returns:
+            Raw JSON envelope: ``{"total_count": int, "incomplete_results": bool,
+            "items": [<repo>, ...]}``. Caller is responsible for shape coercion.
+
+        Notes:
+            Search has its own (lower) rate limit: 10 req/min unauthed,
+            30 req/min authed. The shared rate-headers tracked by this client
+            are the *core* API limit — search exhaustion may surface as a
+            403 with a different X-RateLimit-Resource header.
+        """
+        return self._get(
+            "/search/repositories",
+            {"q": query, "sort": sort, "order": order, "per_page": per_page, "page": page},
+        )
