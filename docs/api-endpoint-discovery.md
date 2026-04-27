@@ -169,8 +169,85 @@ Before opening a PR that adds a new scraper/client to scraperx:
 
 Alternative: 2 minutes of GitLab search + 30 seconds of `/openapi.json` probing + 5 minutes of DevPortal browsing. Cost: 8 minutes.
 
+## Post-discovery: when the endpoint exists but returns 403/401
+
+You found the path. You're authenticated. It still rejects you. **Don't email the vendor yet.** Most enterprise B2B APIs split auth into TWO gateways:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  IDENTITY GATEWAY (is.vendor.com / auth.vendor.com)              │
+│    Issues OAuth tokens. Stamps scope strings. Generous, free.    │
+│                                                                  │
+│  API MANAGER GATEWAY (api.vendor.com / gateway.vendor.com)       │
+│    Validates per-API-product subscription. Strict, plan-based.   │
+│                                                                  │
+│  DEVPORTAL (cp.vendor.com/devportal/apis / developer.vendor.com) │
+│    Customer self-service. Subscribe consumer key to API products.│
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Quick triage of any 403:** look at the body. If it carries a vendor-specific code that mentions "subscription", "plan", "tier", or "product" — go to DevPortal, click Subscribe, done. WSO2's flagship code for this is **`900908 "API Subscription validation failed"`**. Apigee uses `subscription_required`. AWS uses `usage_plan_violation`. All mean the SAME thing: your consumer key isn't subscribed to this API product. Self-service fix.
+
+If the body is plain "Forbidden" with no code, common culprits are: passing `receiverId=` / `tenantId=` query params when the token already encodes them, sending the wrong `Accept-Language` format, or using a wrong-tier API key.
+
+**Full pattern doc:** `~/ai/global-graph/patterns/two-gateway-api-platforms.md` — covers WSO2, Apigee, Kong, AWS API Gateway, Azure APIM with vendor-specific error codes and a 4-cell probe to distinguish scope from subscription problems in 30 seconds.
+
+### Drop-in scaffold: probe-before-email
+
+Add this to every new scraper module under `scripts/<vendor>_subscription_probe.py`:
+
+```python
+# scripts/<vendor>_subscription_probe.py
+import os, asyncio, httpx
+
+AUTH = "https://is.vendor.com/oauth2/token"
+API  = "https://api.vendor.com"
+
+async def main():
+    creds = {
+        "grant_type": "client_credentials",
+        "client_id": os.environ["VENDOR_CLIENT_ID"],
+        "client_secret": os.environ["VENDOR_CLIENT_SECRET"],
+    }
+    for label, scope in [("default", None), ("elevated", "allinone")]:
+        body = {**creds, **({"scope": scope} if scope else {})}
+        async with httpx.AsyncClient(timeout=10) as c:
+            tr = await c.post(AUTH, data=body)
+            tok = tr.json().get("access_token", "")
+            er = await c.get(
+                f"{API}/the/path/in/question",
+                headers={"Authorization": f"Bearer {tok}"},
+            )
+            print(
+                f"{label:>8} → token-status={tr.status_code} "
+                f"endpoint-status={er.status_code} body={er.text[:200]}"
+            )
+
+asyncio.run(main())
+```
+
+Run it BEFORE opening any vendor support ticket. The output tells you in seconds whether you have a scope problem (fixable on your side) or a subscription gap (DevPortal click) — vs a real path/credential issue worth escalating.
+
+## Scraperx new-client checklist (REVISED)
+
+Before opening a PR that adds a new scraper/client to scraperx:
+
+- [ ] Walked steps 1→4 of the discovery ladder
+- [ ] Documented source of truth in the package's `README.md`: DevPortal / GitLab repo / HAR file / grepped bundle
+- [ ] If HAR/bundle-grep was the source: committed a redacted snapshot to `tests/fixtures/<vendor>/`
+- [ ] If DevPortal: noted URL + required subscription tier
+- [ ] Every endpoint path in code has a comment linking to its source
+- [ ] No invented path names — if unsure, mark `TODO` and block the PR
+- [ ] First CI run hits a real sandbox / dev endpoint and captures response for fixture
+- [ ] **Two-gateway check:** if vendor uses WSO2 / Apigee / Kong / AWS APIM / Azure APIM:
+  - [ ] Added `scripts/<vendor>_subscription_probe.py` (template above)
+  - [ ] README has a "DevPortal subscription state" section with the URL + currently-subscribed API products
+  - [ ] First 403 hit was probed BEFORE any vendor ticket (link the probe output in the PR description)
+
 ## Related
 
-- Canonical pattern doc: `~/ai/global-graph/patterns/api-endpoint-discovery-without-docs.md`
+- Canonical discovery pattern: `~/ai/global-graph/patterns/api-endpoint-discovery-without-docs.md`
+- **Two-gateway pattern (post-discovery 403/401 triage):** `~/ai/global-graph/patterns/two-gateway-api-platforms.md`
 - Example — Inter Cars WebAPI: `~/ai/global-graph/tools/intercars-webapi.md`
+- IC-specific 403 flowchart: `~/ai/global-graph/patterns/ic-api-403-diagnostic.md`
 - Full incident trace: `~/Documents/future-gear/docs/wiki/ic-api-trace-v2-2026-04-24.md`
