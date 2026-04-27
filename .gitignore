@@ -14,3 +14,11 @@ data/
 *.mp3
 *.wav
 .git-backup-before-rewrite/
+
+# Daemon output — scraping results stay on local disk only, NEVER public repo
+# (2026-04-27). bmw_corpus + future scrapers append to JSONL files that
+# eventually exceed GitHub's 100MB per-file cap. History rewrite for the
+# 11 already-pushed auto-commits is tracked separately as a force-push task.
+output/
+*.jsonl
+*.jsonl.processed
