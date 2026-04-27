@@ -22,3 +22,6 @@ data/
 output/
 *.jsonl
 *.jsonl.processed
+
+# Local safety backups from filter-repo / similar rewrites — never tracked
+.git.backup-*/
