@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import random
 import sys
 import time
 import urllib.error
@@ -44,6 +45,17 @@ USER_AGENT = (
 )
 TIMEOUT_S = 15
 THROTTLE_S = 1.5  # 1 req per 1.5s = ~40 req/min, well under 60 limit
+
+# 2026-04-27: empirically observed bursts when iterating subs back-to-back
+# triggered intermittent 403 on r/AskMechanics + r/Cartalk despite total RPS
+# being well under Reddit's 60 rpm budget. Per-IP burst limiter does not care
+# about your average; it cares about your milliseconds. Add jittered cooldown
+# *between* subreddits, not just between pages.
+INTER_SUB_COOLDOWN_S = (3.0, 6.0)  # uniform-jittered range
+# Retry-with-backoff on 403/429 — Reddit returns 403 for "too fast", not just
+# permanent blocks. One retry after a long sleep often succeeds.
+RETRY_HTTP_CODES = {403, 429}
+RETRY_BACKOFF_S = (15.0, 30.0)  # uniform-jittered range
 
 # Curated subreddits — order = priority for time budget
 # 2026-04-25: removed BMWi, X3, X5 (404), E36 (403 with this UA — drop until OAuth)
@@ -70,14 +82,33 @@ MECHANIC_SUBS_QUERIED = [
 
 
 def _get_json(url: str, params: dict | None = None) -> dict:
+    """Fetch JSON with single retry-with-backoff on 403/429 (Reddit burst limiter).
+
+    Empirically (2026-04-27) Reddit returns 403 on rapid sub-to-sub bursts even
+    when total RPS is well under quota. Catching HTTPError specifically (not
+    just URLError) lets us retry once after a 15-30s sleep — typically clears.
+    """
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+
+    for attempt in (1, 2):
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code in RETRY_HTTP_CODES and attempt == 1:
+                cooldown = random.uniform(*RETRY_BACKOFF_S)
+                log.warning(
+                    "HTTP %d on %s — backing off %.1fs then retrying",
+                    e.code, url, cooldown,
+                )
+                time.sleep(cooldown)
+                continue
+            raise
+    # unreachable — loop body either returns or raises
+    raise RuntimeError("retry loop fell through without return/raise")
 
 
 def _fetch_listing(url: str, after: str | None = None, limit: int = 100) -> dict:
@@ -229,13 +260,24 @@ def crawl_subreddit_search(subreddit: str, query: str, max_pages: int = 5) -> li
     return out
 
 
+def _inter_sub_cooldown() -> None:
+    """Jittered sleep between subreddit calls — defeats Reddit's per-IP burst
+    limiter that fires even when total RPS is well under the 60 rpm budget.
+    """
+    cooldown = random.uniform(*INTER_SUB_COOLDOWN_S)
+    time.sleep(cooldown)
+
+
 def crawl_all(max_pages_per_sub: int = 10, max_pages_search: int = 5) -> list[dict]:
     all_records: list[dict] = []
-    for sub in BMW_SUBS:
+    for i, sub in enumerate(BMW_SUBS):
+        if i > 0:
+            _inter_sub_cooldown()
         recs = crawl_subreddit_listing(sub, max_pages=max_pages_per_sub)
         all_records.extend(recs)
         log.info("r/%s yielded %d posts (running total: %d)", sub, len(recs), len(all_records))
     for sub, query in MECHANIC_SUBS_QUERIED:
+        _inter_sub_cooldown()
         recs = crawl_subreddit_search(sub, query, max_pages=max_pages_search)
         all_records.extend(recs)
         log.info(
