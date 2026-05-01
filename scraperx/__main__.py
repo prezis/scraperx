@@ -63,6 +63,9 @@ def main():
         if subcmd == "label-extract":
             _main_label_extract()
             return
+        if subcmd == "chips":
+            _main_chips()
+            return
         if subcmd == "github":
             from scraperx.github_analyzer.cli import main_github
 
@@ -680,6 +683,7 @@ def _main_label_extract():
             "chain": result.chain,
             "explorer": result.explorer,
             "source": result.source,
+            "chips": list(result.chips),
             "errors": result.errors,
         }
         print(json.dumps(out, indent=2, ensure_ascii=False))
@@ -691,7 +695,39 @@ def _main_label_extract():
         if result.exchange_guess:
             print(f"Guess:   {result.exchange_guess}")
         print(f"Chain:   {result.chain or '-'}")
+        if result.chips:
+            print(f"Chips:   {', '.join(result.chips)}")
         print(f"Source:  {result.source}")
+
+
+def _main_chips():
+    from .explorer_label import ExplorerNotSupported, extract_label
+
+    parser = argparse.ArgumentParser(
+        prog="scraperx chips",
+        description="Print just the metadata chips from an Etherscan-family address page (one per line)",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "chips"
+    parser.add_argument("url", help="Block-explorer URL (e.g. https://etherscan.io/address/0x...)")
+    parser.add_argument("--timeout", type=int, default=15, help="Timeout in seconds (default: 15)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+    try:
+        result = extract_label(args.url, timeout=args.timeout)
+    except ExplorerNotSupported as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(2)
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    for chip in result.chips:
+        print(chip)
 
 
 if __name__ == "__main__":
