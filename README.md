@@ -407,6 +407,104 @@ with SocialDB() as db:
     print(f"{buzz['mention_count']} mentions / {buzz['unique_authors']} authors")
 ```
 
+### 7. OSINT scraping primitives (1.7.0+)
+
+Six reusable building-blocks ported from the s31/s32 wojak-wojtek session. Each one
+replaces a recurring inline workaround with a typed, tested helper.
+
+```python
+from scraperx import (
+    dismiss_cookie_banner,            # cookie_banner.py — 16 vendor selectors, fan-out probe
+    extract_chart_data,               # js_state.py — pull Highcharts series WITHOUT OCR
+    extract_spa_state,                # js_state.py — Next/Apollo/Redux hydration grab
+    wayback_multi_generation_probe,   # wayback.py — multi-URL-family CDX recovery
+    parse_pdf_with_columns,           # pdf_text_parser.py — column-band tokeniser
+    reverse_image_search,             # reverse_image.py — 6-engine fan-out (Yandex/Lens/...)
+    QuotaSession,                     # quota_session.py — requests-cache + pyrate-limiter
+)
+```
+
+**Cookie banner — auto-dismiss before scraping:**
+
+```python
+from playwright.sync_api import sync_playwright
+from scraperx import dismiss_cookie_banner
+
+with sync_playwright() as pw:
+    browser = pw.chromium.launch(headless=True)
+    page = browser.new_page()
+    page.goto("https://www.yardeni.com/")
+    r = dismiss_cookie_banner(page)
+    print(r.vendor, r.matched_selector)  # "OneTrust", "#onetrust-accept-btn-handler"
+```
+
+**Highcharts data extraction — bypass OCR:**
+
+```python
+from scraperx import extract_chart_data
+charts = extract_chart_data(page)         # one ChartSnapshot per Highcharts instance
+for c in charts:
+    print(c.title, [(s.name, len(s.data)) for s in c.series])
+```
+
+**Wayback multi-generation recovery — never declare a year unrecoverable
+until you've tried every URL family:**
+
+```python
+from scraperx import wayback_multi_generation_probe
+result = wayback_multi_generation_probe(
+    domain="ici.org",
+    url_family_generations=[
+        "ici.org/info/",
+        "ici.org/doc-server/info%3A",
+        "ici.org/system/files/",
+    ],
+    year=2018,
+)
+print(result.matched_family, len(result.entries))
+print(result.per_family_counts)  # honest "we tried everything" report
+```
+
+**Multi-column PDF parsing — chartbooks, factsheets:**
+
+```python
+from scraperx import parse_pdf_with_columns
+result = parse_pdf_with_columns(
+    path="/tmp/yardeni_sp546fundamentals.pdf",
+    section_re=r"Sector Earnings Revisions",
+    footer_re=r"Source: Yardeni",
+    sector_aliases={"Info Tech": "Information Technology"},
+)
+for r in result.rows:
+    print(r.label, r.values)
+```
+
+**Reverse-image fan-out — different corpora hit different sources:**
+
+```python
+from scraperx import reverse_image_search
+hits = reverse_image_search("https://example.com/avatar.jpg", fetch=False)
+for h in hits:
+    print(f"{h.engine:10s}  {h.search_url}")
+```
+
+**Cached + rate-limited HTTP session with auth-header hygiene:**
+
+```python
+from pyrate_limiter import Rate, Duration
+from scraperx import QuotaSession
+sess = QuotaSession(
+    cache_path="~/.scraperx/finnhub-cache.sqlite",
+    rates=[Rate(60, Duration.SECOND), Rate(50_000, Duration.DAY)],
+    auth_headers=("X-Finnhub-Token", "Authorization"),
+    bucket_name="finnhub-free",
+)
+resp = sess.get("https://finnhub.io/api/v1/stock/profile2", params={"symbol": "AAPL"})
+```
+
+Auth headers are excluded from the cache key (no token-leakage in the SQLite file)
+— see the QuotaSession docstring for the cache-collision trade-off.
+
 ---
 
 ## Demo

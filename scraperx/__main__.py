@@ -57,6 +57,12 @@ def main():
         if subcmd == "discover":
             _main_discover()
             return
+        if subcmd == "page-title":
+            _main_page_title()
+            return
+        if subcmd == "label-extract":
+            _main_label_extract()
+            return
         if subcmd == "github":
             from scraperx.github_analyzer.cli import main_github
 
@@ -611,6 +617,81 @@ def _main_screenshot():
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def _main_page_title():
+    from .explorer_label import page_title
+
+    parser = argparse.ArgumentParser(
+        prog="scraperx page-title",
+        description="Print the <title> tag text for a URL (block-explorers handled, others best-effort)",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "page-title"
+    parser.add_argument("url", help="URL to fetch")
+    parser.add_argument("--timeout", type=int, default=15, help="Timeout in seconds (default: 15)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+    try:
+        print(page_title(args.url, timeout=args.timeout))
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _main_label_extract():
+    from .explorer_label import ExplorerNotSupported, extract_label
+
+    parser = argparse.ArgumentParser(
+        prog="scraperx label-extract",
+        description="Extract the human label from a block-explorer URL (Etherscan family, Solscan, Tronscan, ...)",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "label-extract"
+    parser.add_argument("url", help="Block-explorer URL (e.g. https://etherscan.io/address/0x...)")
+    parser.add_argument("--json", action="store_true", help="Output JSON")
+    parser.add_argument("--timeout", type=int, default=15, help="Timeout in seconds (default: 15)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+    try:
+        result = extract_label(args.url, timeout=args.timeout)
+    except ExplorerNotSupported as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(2)
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        out = {
+            "url": result.url,
+            "title": result.title,
+            "address": result.address,
+            "label": result.label,
+            "exchange_guess": result.exchange_guess,
+            "chain": result.chain,
+            "explorer": result.explorer,
+            "source": result.source,
+            "errors": result.errors,
+        }
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+    else:
+        print(f"URL:     {result.url}")
+        print(f"Title:   {result.title or '-'}")
+        print(f"Address: {result.address or '-'}")
+        print(f"Label:   {result.label or '(no label assigned by explorer)'}")
+        if result.exchange_guess:
+            print(f"Guess:   {result.exchange_guess}")
+        print(f"Chain:   {result.chain or '-'}")
+        print(f"Source:  {result.source}")
 
 
 if __name__ == "__main__":
