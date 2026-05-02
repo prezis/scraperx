@@ -143,3 +143,77 @@ def test_acquire_propagates_ratelimit_errors_clearly(monkeypatch):
     sess = _make_session_with_limiter(monkeypatch, _Boom())
     with pytest.raises(RuntimeError, match="ratelimit"):
         sess._acquire()
+
+
+# ---------------------------------------------------------------------------
+# _build_limiter — guard against the rates-unpacking regression
+# ---------------------------------------------------------------------------
+
+
+def test_build_limiter_passes_multi_rate_list_as_single_arg(monkeypatch):
+    """Regression: ``Limiter(*rates)`` silently drops every rate after the first.
+
+    pyrate-limiter's ``Limiter(arg)`` accepts a single positional arg — either
+    a Rate or a List[Rate]. Unpacking the list into multiple positional args
+    leaves only the FIRST rate enforced, so callers wiring "60/min AND 800/day"
+    get the daily budget silently dropped.
+
+    We capture the constructor args of a fake Limiter and assert the list
+    arrives intact.
+    """
+    captured: dict[str, Any] = {}
+
+    class _FakeLimiter:
+        def __init__(self, *args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+    # Replace pyrate_limiter.Limiter at the import site
+    import sys
+    fake_mod = type(sys)("pyrate_limiter")
+    fake_mod.Limiter = _FakeLimiter  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pyrate_limiter", fake_mod)
+
+    monkeypatch.setattr(QuotaSession, "_build_session", lambda self: _NullSession())
+
+    rate_a = object()
+    rate_b = object()
+    sess = QuotaSession(
+        cache_path="/tmp/qs-test.sqlite",
+        rates=[rate_a, rate_b],
+    )
+    # The wrapper still constructs a session even though we stubbed _build_session;
+    # what matters is the captured args from _build_limiter.
+    assert sess is not None
+    assert captured["args"] == ([rate_a, rate_b],), (
+        f"Expected Limiter to receive the rates list as a single positional arg, "
+        f"got {captured['args']!r}. If this assertion fires with two separate "
+        f"rate objects, the multi-rate unpacking regression is back."
+    )
+
+
+def test_build_limiter_passes_single_rate_directly(monkeypatch):
+    """Single-rate path stays as ``Limiter(rate)`` (not wrapped in a list)."""
+    captured: dict[str, Any] = {}
+
+    class _FakeLimiter:
+        def __init__(self, *args, **kwargs):
+            captured["args"] = args
+
+    import sys
+    fake_mod = type(sys)("pyrate_limiter")
+    fake_mod.Limiter = _FakeLimiter  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pyrate_limiter", fake_mod)
+
+    monkeypatch.setattr(QuotaSession, "_build_session", lambda self: _NullSession())
+
+    rate_only = object()
+    QuotaSession(cache_path="/tmp/qs-test.sqlite", rates=[rate_only])
+    assert captured["args"] == (rate_only,)
+
+
+def test_build_limiter_returns_none_for_empty_rates(monkeypatch):
+    """No rates → no Limiter (and pyrate-limiter is never imported)."""
+    monkeypatch.setattr(QuotaSession, "_build_session", lambda self: _NullSession())
+    sess = QuotaSession(cache_path="/tmp/qs-test.sqlite", rates=[])
+    assert sess._limiter is None
