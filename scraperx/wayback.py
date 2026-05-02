@@ -144,6 +144,42 @@ def _year_to_ts(year: int | None, *, end: bool) -> str | None:
     return f"{year:04d}1231235959" if end else f"{year:04d}0101000000"
 
 
+_VALID_COLLAPSE_FIELDS: frozenset[str] = frozenset({
+    "urlkey", "timestamp", "original", "statuscode", "mimetype", "digest", "length",
+})
+
+
+def _validate_collapse(collapse: str) -> None:
+    """Validate a CDX ``collapse`` clause.
+
+    Accepted forms (per IA CDX docs):
+      - ``"<field>"`` — collapse adjacent rows with the same field value.
+      - ``"<field>:<N>"`` — collapse on the first N chars of the field value.
+        Most common: ``"timestamp:8"`` = one row per YYYYMMDD.
+
+    Field must come from _VALID_COLLAPSE_FIELDS (matches CDX schema). The
+    optional :N tail must be a positive integer.
+    """
+    if ":" in collapse:
+        field, _, n = collapse.partition(":")
+        if field not in _VALID_COLLAPSE_FIELDS:
+            raise ValueError(
+                f"collapse field must be one of {sorted(_VALID_COLLAPSE_FIELDS)}, got {field!r}"
+            )
+        try:
+            n_int = int(n)
+        except ValueError:
+            raise ValueError(f"collapse N must be a positive integer, got {n!r}") from None
+        if n_int <= 0:
+            raise ValueError(f"collapse N must be positive, got {n_int}")
+    else:
+        if collapse not in _VALID_COLLAPSE_FIELDS:
+            raise ValueError(
+                f"collapse must be one of {sorted(_VALID_COLLAPSE_FIELDS)} "
+                f"(optionally ``<field>:<N>``), got {collapse!r}"
+            )
+
+
 def _build_cdx_url(
     url_pattern: str,
     *,
@@ -151,6 +187,7 @@ def _build_cdx_url(
     to_year: int | None,
     limit: int,
     match_type: str,
+    collapse: str | None = None,
 ) -> str:
     """Compose the CDX query URL with an explicit field allow-list."""
     if match_type not in ("exact", "prefix", "host", "domain"):
@@ -168,6 +205,9 @@ def _build_cdx_url(
         parts.append(f"from={from_ts}")
     if to_ts is not None:
         parts.append(f"to={to_ts}")
+    if collapse is not None:
+        _validate_collapse(collapse)
+        parts.append(f"collapse={quote(collapse, safe=':')}")
     return CDX_BASE + "?" + "&".join(parts)
 
 
@@ -214,6 +254,7 @@ def query_cdx(
     to_year: int | None = None,
     limit: int = 1000,
     match_type: str = "prefix",
+    collapse: str | None = None,
     timeout: int = 30,
     user_agent: str = DEFAULT_USER_AGENT,
 ) -> list[CdxEntry]:
@@ -226,11 +267,20 @@ def query_cdx(
         limit:       Max snapshots to return. 1000 is the soft IA cap; bumping
                      higher will still work but costs IA more.
         match_type:  "exact" | "prefix" | "host" | "domain". Default "prefix".
+        collapse:    Optional CDX collapse clause. Either a bare field name
+                     (``"urlkey"``, ``"timestamp"``, etc.) — adjacent rows
+                     with the same value are deduplicated — or
+                     ``"<field>:<N>"`` to collapse on the first N chars
+                     (e.g. ``"timestamp:8"`` = one row per YYYYMMDD,
+                     ``"timestamp:6"`` = one per YYYYMM, ``"urlkey"`` = first
+                     snapshot per unique URL within the window). See
+                     https://archive.org/developers/wayback-cdx-server.html#collapsing
         timeout:     Per-request timeout in seconds.
         user_agent:  Request UA. Default is our scraperx-wayback string.
 
     Raises:
         WaybackError: On non-200 status or malformed JSON.
+        ValueError: If ``collapse`` is not a valid CDX field or has bad form.
     """
     url = _build_cdx_url(
         url_pattern,
@@ -238,6 +288,7 @@ def query_cdx(
         to_year=to_year,
         limit=limit,
         match_type=match_type,
+        collapse=collapse,
     )
     # Defensive: confirm we built a request to the expected host (no injection)
     host = urlparse(url).hostname or ""
