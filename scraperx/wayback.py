@@ -144,6 +144,57 @@ def _year_to_ts(year: int | None, *, end: bool) -> str | None:
     return f"{year:04d}1231235959" if end else f"{year:04d}0101000000"
 
 
+def _normalise_cdx_ts(ts: str | None, *, end: bool) -> str | None:
+    """Normalise a user-supplied date/timestamp to CDX's ``YYYYMMDDhhmmss`` form.
+
+    Accepts:
+      - ``None`` → returns None (open-ended bound).
+      - ``YYYY``           (4 chars)  → year-precision (delegates to _year_to_ts).
+      - ``YYYYMM``         (6 chars)  → month-precision.
+      - ``YYYYMMDD``       (8 chars)  → day-precision.
+      - ``YYYYMMDDhh``     (10 chars) → hour-precision.
+      - ``YYYYMMDDhhmm``   (12 chars) → minute-precision.
+      - ``YYYYMMDDhhmmss`` (14 chars) → second-precision (CDX native form).
+
+    For each precision, the partial timestamp is right-padded so the lower
+    bound goes to "start of the next-finest unit" and the upper bound goes to
+    "end of the next-finest unit" — e.g. ``YYYYMMDD`` start → ``YYYYMMDD000000``,
+    end → ``YYYYMMDD235959``.
+
+    Strings of unsupported lengths or with non-digit chars raise ValueError.
+    """
+    if ts is None:
+        return None
+    if not isinstance(ts, str):
+        raise TypeError(f"timestamp must be a string, got {type(ts).__name__}")
+    if not ts.isdigit():
+        raise ValueError(f"timestamp must be all digits, got {ts!r}")
+    n = len(ts)
+    # Right-pad to 14 chars; for END bounds we pad with the maximum-valid-suffix
+    # so "to=20180102" becomes "to=20180102235959" (end of day), not "20180102000000".
+    if n == 14:
+        return ts
+    if n == 4:
+        # Reuse the year-precision helper so callers keep one canonical path
+        return _year_to_ts(int(ts), end=end)
+    if n in (6, 8, 10, 12):
+        if end:
+            # Pad with the largest-valid suffix for the missing trailing components.
+            # YYYYMM  → YYYYMM31235959 (always-valid month upper bound; IA accepts even invalid days like Feb 31)
+            # YYYYMMDD → YYYYMMDD235959 (end of day)
+            # YYYYMMDDhh → YYYYMMDDhh5959 (end of hour)
+            # YYYYMMDDhhmm → YYYYMMDDhhmm59 (end of minute)
+            tail_by_n = {6: "31235959", 8: "235959", 10: "5959", 12: "59"}
+            return ts + tail_by_n[n]
+        else:
+            # Lower bound: pad with zeros to the start of the next-finest unit.
+            tail_by_n = {6: "01000000", 8: "000000", 10: "0000", 12: "00"}
+            return ts + tail_by_n[n]
+    raise ValueError(
+        f"timestamp must be 4/6/8/10/12/14 digits (YYYY..YYYYMMDDhhmmss), got {n}-char {ts!r}"
+    )
+
+
 def _build_cdx_url(
     url_pattern: str,
     *,
@@ -151,8 +202,16 @@ def _build_cdx_url(
     to_year: int | None,
     limit: int,
     match_type: str,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
 ) -> str:
-    """Compose the CDX query URL with an explicit field allow-list."""
+    """Compose the CDX query URL with an explicit field allow-list.
+
+    Date bounds: pass either ``from_year`` / ``to_year`` (year-precision) or
+    ``from_ts`` / ``to_ts`` (sub-year precision via ``YYYYMMDD``,
+    ``YYYYMMDDhhmmss``, etc.). When both are set on the SAME side, the
+    ``_ts`` variant wins (more precise).
+    """
     if match_type not in ("exact", "prefix", "host", "domain"):
         raise ValueError(f"match_type must be one of exact/prefix/host/domain, got {match_type!r}")
     parts = [
@@ -162,12 +221,15 @@ def _build_cdx_url(
         f"matchType={match_type}",
         f"fl={','.join(_CDX_FIELDS)}",
     ]
-    from_ts = _year_to_ts(from_year, end=False)
-    to_ts = _year_to_ts(to_year, end=True)
-    if from_ts is not None:
-        parts.append(f"from={from_ts}")
-    if to_ts is not None:
-        parts.append(f"to={to_ts}")
+    # Resolve from/to: explicit `_ts` overrides year-precision when both set.
+    from_resolved = _normalise_cdx_ts(from_ts, end=False) if from_ts is not None \
+        else _year_to_ts(from_year, end=False)
+    to_resolved = _normalise_cdx_ts(to_ts, end=True) if to_ts is not None \
+        else _year_to_ts(to_year, end=True)
+    if from_resolved is not None:
+        parts.append(f"from={from_resolved}")
+    if to_resolved is not None:
+        parts.append(f"to={to_resolved}")
     return CDX_BASE + "?" + "&".join(parts)
 
 
@@ -212,6 +274,8 @@ def query_cdx(
     *,
     from_year: int | None = None,
     to_year: int | None = None,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
     limit: int = 1000,
     match_type: str = "prefix",
     timeout: int = 30,
@@ -223,6 +287,16 @@ def query_cdx(
         url_pattern: URL or path-prefix to query, e.g. ``"example.com/info/"``.
         from_year:   Lower bound year (inclusive). None = open-ended.
         to_year:     Upper bound year (inclusive). None = open-ended.
+        from_ts:     Sub-year-precision lower bound. Accepts CDX-shaped
+                     timestamps (digits only) of length 4/6/8/10/12/14:
+                     ``YYYY``, ``YYYYMM``, ``YYYYMMDD``, ``YYYYMMDDhh``,
+                     ``YYYYMMDDhhmm``, or full ``YYYYMMDDhhmmss``. Padded
+                     to start-of-next-finest-unit when shorter than 14 chars.
+                     If set, OVERRIDES ``from_year`` (more precise wins).
+        to_ts:       Sub-year-precision upper bound, same accepted shapes
+                     as ``from_ts``. Padded to end-of-next-finest-unit
+                     when shorter than 14 chars (e.g. ``"20180102"`` →
+                     ``"20180102235959"``). Overrides ``to_year``.
         limit:       Max snapshots to return. 1000 is the soft IA cap; bumping
                      higher will still work but costs IA more.
         match_type:  "exact" | "prefix" | "host" | "domain". Default "prefix".
@@ -231,11 +305,14 @@ def query_cdx(
 
     Raises:
         WaybackError: On non-200 status or malformed JSON.
+        ValueError: If ``from_ts`` / ``to_ts`` is malformed (non-digit, wrong length).
     """
     url = _build_cdx_url(
         url_pattern,
         from_year=from_year,
         to_year=to_year,
+        from_ts=from_ts,
+        to_ts=to_ts,
         limit=limit,
         match_type=match_type,
     )
