@@ -147,7 +147,13 @@ class QuotaSession:
         )
 
     def _build_limiter(self, rates: list[Any]) -> Any | None:
-        """Build the pyrate-limiter Limiter, or return None if no rates given."""
+        """Build the pyrate-limiter Limiter, or return None if no rates given.
+
+        Note (s37, 2026-05-02 wojak audit): pyrate-limiter's ``Limiter(...)``
+        constructor takes a SINGLE positional arg (Rate or List[Rate]). Passing
+        ``Limiter(*rates)`` silently drops all rates after the first. Always
+        pass the list as a single arg.
+        """
         if not rates:
             return None
         try:
@@ -157,7 +163,7 @@ class QuotaSession:
                 "QuotaSession needs the optional `pyrate-limiter` package. "
                 "Install with `pip install pyrate-limiter>=4`."
             ) from e
-        return Limiter(*rates) if len(rates) > 1 else Limiter(rates[0])
+        return Limiter(rates) if len(rates) > 1 else Limiter(rates[0])
 
     def _acquire(self) -> None:
         """Block until both rate buckets have a free token. No-op if no limiter.

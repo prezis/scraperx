@@ -86,6 +86,10 @@ def main():
             from scraperx.doctor import main as doctor_main
 
             sys.exit(doctor_main())
+        if subcmd == "docs-crawl":
+            from scraperx.docs_crawler import _main_docs_crawl
+
+            sys.exit(_main_docs_crawl())
     _main_url()
 
 

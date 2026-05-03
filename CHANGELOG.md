@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`scraperx/docs_crawler.py`** — exhaustive documentation-site crawler. Born from the IC API docs incident (2026-05-03) where an LLM agent claimed "I read the docs" while having only read 5 of 82 pages. The module:
+  - Discovers URLs via `sitemap.xml` (with namespace-agnostic fallback for non-conformant XML) or explicit URL list.
+  - Fetches each page via curl with a Mozilla UA — Cloudflare-resistant.
+  - Extracts prose with a *less aggressive* HTML parser that recovers Docusaurus / VitePress / mkdocs-material content (prior mistake: skipping `<nav>`/`<header>`/`<footer>` along with `<script>` nuked breadcrumbs, sidebars, and 95% of the prose on Docusaurus sites).
+  - Flags pages with `<500` chars as "shell candidates" needing playwright render — written to `_SHELLS.md`.
+  - Writes `_DIGEST.md` with per-page byte/word counts so the caller can verify coverage at a glance.
+  - URL validation defends against curl flag injection (URLs starting with `-`, line breaks, non-http schemes).
+  - Path-traversal defence: resolved write paths must stay inside the output directory.
+- **`scraperx docs-crawl <root_url>`** — new CLI subcommand. Default output dir `./docs-crawl-<host>/`. Flags: `--max-pages`, `--user-agent`, `--timeout`, `--sleep-between`, `--include-encoded-dups`.
+- **22 tests** in `tests/test_docs_crawler.py` covering extractor robustness (nav/header/footer preservation, script/style stripping, runaway-newline guard), sitemap namespace fallback, URL validation (flag-injection guard, line-break rejection), slug safety, end-to-end crawl with stub curl.
+
+### Use case
+
+When an agent says "read every page of docs.example.com":
+```bash
+scraperx docs-crawl https://docs.example.com/
+# → ./docs-crawl-docs.example.com/_DIGEST.md   ← byte-counted page index
+# → ./docs-crawl-docs.example.com/*.txt        ← extracted prose, ready to grep
+# → ./docs-crawl-docs.example.com/_SHELLS.md   ← pages that need playwright
+```
+
+Then any LLM/agent can `grep -l "<topic>" ./docs-crawl-*/` with confidence that nothing was silently skipped.
+
+### Why this matters
+
+Pre-`docs_crawler`, agents would either (a) read 3-5 prose pages and claim coverage, (b) crawl with a too-aggressive HTML parser that returned 83 bytes per page, or (c) download swagger YAML and conflate "have access to" with "have read." This module makes "I read every page" verifiable.
+
 ## [1.4.3] — 2026-04-25
 
 Bug-fix release: production-grade SQLite WAL hygiene across all storage callsites. Important for anyone running scraperx components as long-lived daemons (BMW corpus ingester, Reddit/KBA/forum scrapers, GitHub analyzer in batch mode) — closes the unbounded-WAL disaster vector.
