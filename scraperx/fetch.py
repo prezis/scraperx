@@ -1,15 +1,21 @@
-"""smart_fetch — universal URL fetcher with Jina Reader → urllib → Playwright cascade.
+"""smart_fetch — universal URL fetcher with Jina → urllib → Playwright → Scrapling cascade.
 
 Designed for the wojak-wojtek wiki research stack: any "fetch URL → maybe-Cloudflare-walled" call.
 Each cascade leg trades speed for resilience.
 
 Modes (ordered by speed/quality tradeoff):
-    1. jina:       https://r.jina.ai/<url> — clean markdown extraction, Cloudflare-aware
-                   Best for: research articles, docs, news. Returns rendered text content.
-    2. urllib:     raw HTTP via stdlib — fast, plain HTML, no JS execution
-                   Best for: static pages, JSON endpoints, RSS feeds.
-    3. playwright: full headless Chromium render — slowest but bypasses bot-walls
-                   Best for: JS-heavy SPAs, sites that 403 plain HTTP.
+    1. jina:              https://r.jina.ai/<url> — clean markdown extraction, Cloudflare-aware
+                          Best for: research articles, docs, news. Returns rendered text content.
+    2. urllib:            raw HTTP via stdlib — fast, plain HTML, no JS execution
+                          Best for: static pages, JSON endpoints, RSS feeds.
+    3. playwright:        full headless Chromium render — slowest but bypasses bot-walls
+                          Best for: JS-heavy SPAs, sites that 403 plain HTTP.
+    4. scrapling_stealth: patchright Chromium + browserforge fingerprints + Turnstile
+                          auto-solver. Last-resort leg for sites that 403 even plain
+                          Playwright (Arkham Intel, some Cloudflare-walled DEX UIs).
+                          Opt-in dep (``scraperx[stealth]``); raises ScraplingNotAvailable
+                          if missing — cascade records the error and the call returns
+                          empty content rather than crashing.
 
 Cache: per-URL in ``~/.scraperx/social.db`` (``web_fetch_cache`` table). Default TTL 24h.
 
@@ -47,8 +53,17 @@ logger = logging.getLogger(__name__)
 # Public — re-exported via scraperx/__init__.py
 __all__ = ["FetchResult", "smart_fetch", "FetchMode"]
 
-FetchMode = Literal["jina", "urllib", "playwright"]
-_CASCADE_DEFAULT: tuple[FetchMode, ...] = ("jina", "urllib", "playwright")
+FetchMode = Literal["jina", "urllib", "playwright", "scrapling_stealth"]
+# Cascade order: cheap-and-clean first, expensive bot-bypass last.
+# scrapling_stealth runs AFTER plain playwright because it pulls a heavier
+# patched-Chromium binary, takes 30-90s for Cloudflare's solver round-trip,
+# and is only worth it when plain headless Chromium already 403'd.
+_CASCADE_DEFAULT: tuple[FetchMode, ...] = (
+    "jina",
+    "urllib",
+    "playwright",
+    "scrapling_stealth",
+)
 
 DEFAULT_DB_PATH = os.path.expanduser("~/.scraperx/social.db")
 DEFAULT_TIMEOUT = 30
@@ -324,6 +339,25 @@ def _fetch_playwright(url: str, timeout: int) -> tuple[str, int | None]:
             browser.close()
 
 
+def _fetch_scrapling_stealth(url: str, timeout: int) -> tuple[str, int | None]:
+    """Fetch via Scrapling's StealthyFetcher — last-resort Cloudflare bypass.
+
+    Delegates to ``scraperx.scrapling_stealth.fetch_stealth`` which lazy-imports
+    the optional Scrapling dep so this module never hard-requires it. Raises
+    ``ScraplingNotAvailable`` (RuntimeError subclass) if Scrapling is missing —
+    cascade catches and records the error, then the call returns empty content
+    if every leg failed.
+
+    Why last in the cascade:
+        - Heaviest install footprint (~50 MB patchright Chromium + browserforge)
+        - Slowest per-call (30-90s when solving Turnstile)
+        - Only adds value when plain Playwright ALREADY 403'd
+    """
+    # Local import keeps this module's own import time fast and avoids cycles.
+    from scraperx.scrapling_stealth import fetch_stealth
+    return fetch_stealth(url, timeout=timeout)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -403,6 +437,7 @@ def smart_fetch(
         "jina": _fetch_jina,
         "urllib": _fetch_urllib,
         "playwright": _fetch_playwright,
+        "scrapling_stealth": _fetch_scrapling_stealth,
     }
 
     for mode in cascade:

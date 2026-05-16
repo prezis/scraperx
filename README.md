@@ -55,6 +55,7 @@ pip install -e .
 | `[video-discovery]` | `beautifulsoup4>=4.12` | More robust HTML parsing for `discover_videos` |
 | `[whisper]` | `faster-whisper>=1.0` | GPU-accelerated transcription (4× faster than openai-whisper on CPU) |
 | `[twscrape]` | `twscrape>=0.12` | Optional account-backed twscrape backend |
+| `[stealth]` | `scrapling[fetchers]>=0.4.7` | Cloudflare-Turnstile / Interstitial / JS-challenge bypass via patchright Chromium + browserforge fingerprints. Adds the `scrapling_stealth` cascade leg. After install, run `scrapling install` to fetch the patched Chromium binary. |
 
 Combined install:
 
@@ -406,6 +407,33 @@ with SocialDB() as db:
     buzz = db.get_token_buzz("SOL", hours=24)
     print(f"{buzz['mention_count']} mentions / {buzz['unique_authors']} authors")
 ```
+
+### 7a. smart_fetch cascade — universal URL fetcher with Cloudflare bypass
+
+```python
+from scraperx import smart_fetch
+result = smart_fetch("https://intel.arkm.com/explorer/entity/fomo")
+print(result.mode_used, len(result.content), result.http_status)
+```
+
+**Cascade order (cheapest → most resilient):**
+
+| # | Leg | Best for | Cost |
+|---|---|---|---|
+| 1 | `jina` | research articles, docs, news (clean markdown) | free, ~1s |
+| 2 | `urllib` | static pages, JSON endpoints, RSS | free, <1s |
+| 3 | `playwright` | JS-heavy SPAs, sites that 403 plain HTTP | ~5-15s |
+| 4 | `scrapling_stealth` | **Cloudflare Turnstile, JS challenges, fingerprint walls** | ~30-90s, requires `[stealth]` extra |
+
+The cascade tries each leg in order, recording per-leg failures in
+`result.errors`, and returns as soon as one succeeds. SQLite-cached for 24h
+in `~/.scraperx/social.db`. SSRF-guarded (blocks RFC1918 / loopback / link-local
+hosts); pass `allow_private=True` for tests.
+
+`scrapling_stealth` is opt-in (heavy patchright Chromium dep). When the dep is
+missing, the leg surfaces `ScraplingNotAvailable` and the cascade records it as
+a failure rather than crashing — install with `pip install 'scraperx[stealth]'`
+followed by `scrapling install`.
 
 ### 7. OSINT scraping primitives (1.7.0+)
 

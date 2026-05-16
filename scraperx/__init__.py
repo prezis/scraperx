@@ -32,6 +32,11 @@ from .explorer_label import (
     parse_title,
 )
 from .fetch import FetchResult, smart_fetch
+from .scrapling_stealth import (
+    DEFAULT_STEALTH_TIMEOUT,
+    ScraplingNotAvailable,
+    fetch_stealth,
+)
 from .gh_discover import RepoCandidate, discover_repos
 from .js_state import (
     ChartSeries,
@@ -108,6 +113,8 @@ __all__ = [
     "VideoRef",
     "VimeoResult",
     "VimeoScraper",
+    "DEFAULT_STEALTH_TIMEOUT",
+    "ScraplingNotAvailable",
     "WaybackError",
     "XProfile",
     "XScraper",
@@ -126,6 +133,7 @@ __all__ = [
     "extract_spa_state_async",
     "extract_token_mentions",
     "fetch_any_video_transcript",
+    "fetch_stealth",
     "get_profile",
     "get_thread",
     "page_title",

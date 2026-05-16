@@ -142,13 +142,17 @@ def test_smart_fetch_strict_no_fallthrough(tmp_path, monkeypatch):
 
 def test_smart_fetch_all_legs_fail(tmp_path, monkeypatch):
     db = str(tmp_path / "test.db")
+    # All FOUR legs must be patched — the cascade was extended in 1.7.x with
+    # scrapling_stealth as the last leg. Without patching it, the test would
+    # actually hit the network via StealthyFetcher and pass spuriously.
     monkeypatch.setattr(fetch_mod, "_fetch_jina", _fail_leg("a"))
     monkeypatch.setattr(fetch_mod, "_fetch_urllib", _fail_leg("b"))
     monkeypatch.setattr(fetch_mod, "_fetch_playwright", _fail_leg("c"))
+    monkeypatch.setattr(fetch_mod, "_fetch_scrapling_stealth", _fail_leg("d"))
     r = smart_fetch("https://example.com", db_path=db)
     assert not r.ok
     assert r.content == ""
-    assert len(r.errors) == 3
+    assert len(r.errors) == 4
 
 
 def test_smart_fetch_uses_cache(tmp_path, monkeypatch):
