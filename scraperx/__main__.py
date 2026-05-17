@@ -119,6 +119,8 @@ def _main_url():
     parser.add_argument("--cookies", help="Path to cookies file for yt-dlp")
     parser.add_argument("--whisper-model", default="base", help="Whisper model (base/medium/large)")
     parser.add_argument("--force-whisper", action="store_true", help="Skip auto-captions, use whisper")
+    parser.add_argument("--silent-video-frames", type=int, default=8,
+                        help="N frames to OCR when video has no audio (tweet videos). 0 = disable")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     args = parser.parse_args()
 
@@ -315,6 +317,38 @@ def _print_quoted_tweet(tweet: Tweet, indent: int = 2) -> None:
         _print_quoted_tweet(tweet.quoted_tweet, indent + 2)
 
 
+def _maybe_transcribe_silent_video(media_urls: list[str], n_frames: int) -> dict | None:
+    """If a tweet's media is a silent video (twimg.com/amplify_video, no audio
+    track), OCR-transcribe the frames and return a dict. Returns None if no
+    eligible video or transcription is disabled.
+
+    Used by _handle_tweet to auto-fill the gap exposed on 2026-05-17 (gitlawb
+    OpenGateway demo tweet). See ~/ai/global-graph/patterns/silent-video-frame-ocr-fallback.md.
+    """
+    if n_frames <= 0 or not media_urls:
+        return None
+    video_url = next(
+        (u for u in media_urls if any(t in u for t in (".mp4", "video.twimg.com", "amplify_video"))),
+        None,
+    )
+    if not video_url:
+        return None
+    try:
+        from scraperx.silent_video_ocr import (
+            transcribe_silent_video,
+            SilentVideoNotAvailable,
+        )
+        result = transcribe_silent_video(video_url, n_frames=n_frames)
+        # Only attach if it really was silent (otherwise leave to whisper paths)
+        if result.has_audio:
+            return None
+        return result.to_dict()
+    except SilentVideoNotAvailable:
+        return {"error": "silent-video deps missing — install scraperx[silent-video]"}
+    except Exception as e:
+        return {"error": f"silent_video_ocr failed: {type(e).__name__}: {e}"}
+
+
 def _handle_tweet(args):
     scraper = XScraper(ytdlp_cookies=args.cookies)
     try:
@@ -323,8 +357,15 @@ def _handle_tweet(args):
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Auto-transcribe silent video media via frame OCR
+    svo = _maybe_transcribe_silent_video(
+        list(tweet.media_urls or []), getattr(args, "silent_video_frames", 8)
+    )
+
     if args.json:
         out = _tweet_to_dict(tweet)
+        if svo:
+            out["silent_video_transcript"] = svo
         print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
         print(f"@{tweet.author_handle} ({tweet.author})")
@@ -336,6 +377,10 @@ def _handle_tweet(args):
             print(f"\nMedia: {len(tweet.media_urls)} file(s)")
             for u in tweet.media_urls:
                 print(f"  {u}")
+        if svo:
+            print(f"\n[Silent-video OCR ({svo.get('n_frames_sampled', 0)} frames @ "
+                  f"{svo.get('duration_sec', 0):.1f}s)]")
+            print(svo.get("summary", "(no summary)"))
         if tweet.quoted_tweet:
             _print_quoted_tweet(tweet.quoted_tweet)
         print(f"\n{tweet.likes} likes | {tweet.retweets} RT | {tweet.views} views")
