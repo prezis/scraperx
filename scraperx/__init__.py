@@ -15,6 +15,13 @@ from scraperx.github_analyzer import (
 )
 from scraperx.video_discovery import VideoRef, discover_videos, fetch_any_video_transcript
 from scraperx.vimeo_scraper import VimeoResult, VimeoScraper, parse_vimeo_url
+from scraperx.silent_video_ocr import (
+    FrameOCR,
+    SilentVideoNotAvailable,
+    SilentVideoResult,
+    has_audio_stream,
+    transcribe_silent_video,
+)
 
 from .cookie_banner import (
     BannerSelector,

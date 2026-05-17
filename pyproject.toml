@@ -46,6 +46,7 @@ blockchain = ["playwright>=1.58.0"]
 # See scraperx/scrapling_stealth.py + scraperx/fetch.py for cascade integration.
 stealth = ["scrapling[fetchers]>=0.4.7"]
 tv-resolve = ["tvdatafeed>=2.1.0"]
+silent-video = ["pytesseract>=0.3.13", "av>=14.0"]
 dev = ["pytest>=9.0.3", "pytest-cov>=4.0"]
 
 [project.scripts]

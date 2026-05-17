@@ -282,6 +282,20 @@ res = vm.get_transcript(
 
 Transcription priority: creator-uploaded VTT → `faster-whisper` (GPU) → `whisper` CLI. Auto-detects GPU (float16 on CUDA, int8 on Metal, CPU fallback).
 
+### 4b. Silent video transcription — frame OCR for audio-less videos
+
+Videos with no audio track (screen recordings, silent TUI demos) can't be transcribed by Whisper — `transcribe_silent_video` fills the gap by sampling frames and running tesseract OCR.
+
+```python
+from scraperx import transcribe_silent_video
+
+result = transcribe_silent_video("https://x.com/gitlawb/status/2055992174358274431", n_frames=6)
+print(result.full_text)        # timestamped on-screen text
+print(result.has_audio)        # False = confirms silent path was correct
+```
+
+Requires the `tesseract` system binary (`apt install tesseract-ocr` or `brew install tesseract`) and the `[silent-video]` extra (`pip install 'scraperx[silent-video]'`).
+
 ### 5. Video discovery — scan any webpage
 
 ```python
