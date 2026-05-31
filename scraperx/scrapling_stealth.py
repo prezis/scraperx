@@ -36,6 +36,12 @@ Usage as a one-shot bypass (skip the cascade):
 Ground-truth proof (s33, 2026-05-06): cracked
 ``https://intel.arkm.com/explorer/entity/fomo`` after Jina + plain-Playwright
 both got Turnstile-walled. StealthyFetcher returned 200 with full HTML in ~65s.
+
+Ground-truth proof (2026-05-31): cracked DexScreener Base trending —
+``https://dexscreener.com/base?rankBy=trendingScoreH6`` returns 403 via Jina/curl;
+``fetch_stealth(solve_cloudflare=True)`` returned 200 (1.4 MB) -> 94 Base trending token
+CAs. Recipe: regex ``"baseToken":{"symbol":"..","address":"0x.."}`` on the rendered HTML
+(the embedded JSON has ``"totalSupply":undefined`` so ``json.loads`` fails -- use regex).
 """
 
 from __future__ import annotations

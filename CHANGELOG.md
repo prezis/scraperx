@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scrapling_stealth` proven on DexScreener (2026-05-31)** — `fetch_stealth(solve_cloudflare=True)` cracks DexScreener's Cloudflare-walled trending screener (`/base?rankBy=trendingScoreH6` → `403` via Jina/curl → `200` via StealthyFetcher, 94 Base trending token CAs). Recipe in the module docstring + `~/ai/global-graph/tools/scraperx.md`: parse the rendered HTML with regex `"baseToken":{"symbol":"..","address":"0x.."}` (the embedded JSON has `"totalSupply":undefined`, so `json.loads` fails). Install: `pip install 'scrapling[fetchers]' && scrapling install`. The `api.dexscreener.com/latest/dex/*` JSON endpoints stay keyless/un-walled; GeckoTerminal `networks/base/trending_pools` is a clean structured cross-check.
 - **`scraperx/docs_crawler.py`** — exhaustive documentation-site crawler. Born from the IC API docs incident (2026-05-03) where an LLM agent claimed "I read the docs" while having only read 5 of 82 pages. The module:
   - Discovers URLs via `sitemap.xml` (with namespace-agnostic fallback for non-conformant XML) or explicit URL list.
   - Fetches each page via curl with a Mozilla UA — Cloudflare-resistant.
