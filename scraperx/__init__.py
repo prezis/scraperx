@@ -44,6 +44,13 @@ from .scrapling_stealth import (
     ScraplingNotAvailable,
     fetch_stealth,
 )
+from .fingerprint_audit import (
+    CurlCffiNotAvailable,
+    Diagnosis403,
+    FingerprintAudit,
+    audit_fingerprint,
+    diagnose_403,
+)
 from .gh_discover import RepoCandidate, discover_repos
 from .js_state import (
     ChartSeries,
@@ -86,6 +93,11 @@ __version__ = "1.7.0"
 
 __all__ = [
     "AvatarMatcher",
+    "CurlCffiNotAvailable",
+    "Diagnosis403",
+    "FingerprintAudit",
+    "audit_fingerprint",
+    "diagnose_403",
     "BannerSelector",
     "CdxEntry",
     "ChartSeries",
