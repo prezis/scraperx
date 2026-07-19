@@ -63,6 +63,18 @@ from .js_state import (
 )
 from .pdf_text_parser import ColumnRow, ParseResult, parse_pdf_with_columns
 from .quota_session import QuotaSession, QuotaSessionConfig
+from .reddit import (
+    RedditComment,
+    RedditError,
+    RedditPost,
+    RedditScraper,
+    RedditThread,
+    get_subreddit_posts,
+    search_subreddit,
+)
+from .reddit import (
+    get_thread as get_reddit_thread,
+)
 from .reverse_image import (
     DEFAULT_ENGINES,
     ENGINES,
@@ -119,6 +131,11 @@ __all__ = [
     "PlaywrightNotAvailable",
     "QuotaSession",
     "QuotaSessionConfig",
+    "RedditComment",
+    "RedditError",
+    "RedditPost",
+    "RedditScraper",
+    "RedditThread",
     "RepoCandidate",
     "SocialDB",
     "SpaState",
@@ -154,6 +171,8 @@ __all__ = [
     "fetch_any_video_transcript",
     "fetch_stealth",
     "get_profile",
+    "get_reddit_thread",
+    "get_subreddit_posts",
     "get_thread",
     "page_title",
     "parse_github_repo_url",
@@ -164,6 +183,7 @@ __all__ = [
     "resolve_symbol",
     "reverse_image_search",
     "screenshot_url",
+    "search_subreddit",
     "search_tweets",
     "smart_fetch",
     "wayback_multi_generation_probe",

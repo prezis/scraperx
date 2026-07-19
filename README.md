@@ -772,3 +772,61 @@ Stands on the shoulders of:
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — 1800+ video-site extractors
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 4× speedup over OpenAI Whisper
 - [imagehash](https://github.com/JohannesBuchner/imagehash) — perceptual hashing
+
+## Reddit scraping + self-learning method telemetry
+
+### `scraperx.reddit` — tiered NO-LOGIN Reddit scraper
+
+Search, listings, and full threads (flattened comment trees) with no OAuth,
+no account, no API key. Three tiers, cheapest → most resilient:
+
+1. **TIER 1 `old_json`** — `old.reddit.com/....json` (structured; browser UA
+   required; one jittered retry on transient 403/429 bursts)
+2. **TIER 2 `redlib`** — public redlib/libreddit mirror pool, HTML-parsed
+   (fields degrade gracefully: titles/permalinks always, scores best-effort)
+3. **TIER 3 `stealth` / `stealth_mirror`** — scrapling stealth Chromium
+   against the `.json` URL, then against the mirrors (beats JS-challenge
+   walls AND reddit.com IP-blocks — mirrors proxy Reddit from their own IPs)
+
+```python
+from scraperx.reddit import RedditScraper, search_subreddit, get_thread, get_subreddit_posts
+
+posts = search_subreddit("ethereum", "alchemy", limit=10, sort="new")
+thread = get_thread("https://www.reddit.com/r/ethereum/comments/abc123/x/")
+hot = get_subreddit_posts("ethereum", sort="hot", limit=25)
+# package-level: scraperx.get_reddit_thread (scraperx.get_thread is the X/Twitter one)
+```
+
+Politeness is built in (~1-2 req/s with jitter). Every result carries
+`.tier` so you know which method produced it; `scraper.last_tier_used`
+tells you what worked last.
+
+### `scraperx.method_telemetry` — scrapers that LEARN which method works
+
+Instead of a hardcoded tier order forever, every tier attempt is recorded to
+`~/.scraperx/method-telemetry.jsonl` (same JSONL convention as the GitHub
+analyzer's `verdicts.jsonl`), and each call re-ranks methods by **recent
+success-rate** — exponentially time-decayed (6 h half-life) over a last-200
+sliding window:
+
+- **< 5 samples** for a method → neutral prior (0.5) → caller's default order
+- a **proven** method (→1.0) rises above untried ones; a **failing** one
+  (→0.0) sinks below them; decay means a transient block heals itself
+- stdlib-only, **fail-open**: any telemetry error degrades to the default
+  order and never breaks a scrape
+
+```python
+from scraperx.method_telemetry import record, preferred_order, method_stats
+
+record("reddit", "old_json", "old.reddit.com", False, latency_ms=412.7, http_status=403)
+preferred_order("reddit", ("old_json", "redlib", "stealth", "stealth_mirror"))
+# → ["redlib", "stealth", "stealth_mirror", "old_json"] once old_json keeps failing
+method_stats("reddit")   # raw per-method {n, successes, success_rate, avg_latency_ms}
+```
+
+`RedditScraper` wires this in by default (`adaptive_tiers=True`): a blocked
+`old.reddit.com` demotes TIER 1 below the mirrors on subsequent calls, and
+recovers automatically once it works again. Opt out per-instance with
+`RedditScraper(adaptive_tiers=False)`; point the ledger elsewhere (tests/CI)
+with `SCRAPERX_METHOD_TELEMETRY_PATH=/path/to/ledger.jsonl`. Any tiered
+scraper can adopt the same two calls — the ledger is namespaced by `scraper`.
