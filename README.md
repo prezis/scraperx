@@ -5,11 +5,14 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/prezis/scraperx/actions/workflows/ci.yml/badge.svg)](https://github.com/prezis/scraperx/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.3.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.8.0-informational.svg)](CHANGELOG.md)
 
 ScraperX fetches social-media posts, transcribes videos, and verifies authenticity — without API keys or account credentials. Built on stdlib, with optional extras for perceptual image hashing, web scraping helpers, and GPU-accelerated speech-to-text.
 
-> **Status: beta.** Core functionality is stable (212 mocked tests); new v1.3.0 features (Vimeo, video discovery, thread authenticity, avatar pHash) are freshly-released — feedback welcome.
+> **Status: beta.** Core functionality is stable (**851 tests**, offline/mocked apart from a
+> handful of live-network checks). Newest in **1.8.0**: Cloudflare-bypass stealth leg
+> (`scrapling_stealth`), no-login Reddit, frame-OCR for silent video, documentation crawler,
+> 403 fingerprint self-audit, and a self-learning method ledger — see [CHANGELOG](CHANGELOG.md).
 
 ---
 
@@ -830,3 +833,55 @@ recovers automatically once it works again. Opt out per-instance with
 `RedditScraper(adaptive_tiers=False)`; point the ledger elsewhere (tests/CI)
 with `SCRAPERX_METHOD_TELEMETRY_PATH=/path/to/ledger.jsonl`. Any tiered
 scraper can adopt the same two calls — the ledger is namespaced by `scraper`.
+
+## Documentation crawling + fingerprint self-audit
+
+Both modules shipped in the 1.7.0→1.8.0 window and were absent from this README
+until 2026-08-02. Documented here so the front page matches what installs.
+
+### `scraperx.docs_crawler` — "I read every page", made verifiable
+
+Born from a 2026-05-03 incident: an agent claimed it had read a vendor's API docs
+after reading 5 of 82 pages. This crawler makes coverage checkable instead of
+asserted.
+
+```bash
+scraperx docs-crawl https://docs.example.com/
+# → ./docs-crawl-docs.example.com/_DIGEST.md  ← per-page byte/word counts
+# → ./docs-crawl-docs.example.com/*.txt       ← extracted prose, ready to grep
+# → ./docs-crawl-docs.example.com/_SHELLS.md  ← pages <500 chars, need a real render
+```
+
+Discovers URLs via `sitemap.xml` (with a namespace-agnostic fallback for
+non-conformant XML) or an explicit list; fetches with a browser UA; extracts prose
+with a *deliberately less aggressive* parser that keeps Docusaurus / VitePress /
+mkdocs-material content — stripping `<nav>`/`<header>`/`<footer>` alongside
+`<script>` was an earlier mistake that nuked 95% of the prose on Docusaurus sites.
+Hardened against curl flag-injection (URLs starting with `-`, embedded line breaks,
+non-http schemes) and path traversal on write.
+
+Flags: `--max-pages`, `--user-agent`, `--timeout`, `--sleep-between`,
+`--include-encoded-dups`. 22 tests in `tests/test_docs_crawler.py`.
+
+### `scraperx.fingerprint_audit` — the self-check Scrapling does not have
+
+Answers the question every blocked scrape needs answered before anyone touches
+code: **what kind of 403 is this?**
+
+```python
+from scraperx.fingerprint_audit import diagnose_403
+
+verdict = diagnose_403(url, proxy=..., headers=..., cookies=...)
+verdict.likely_cause  # "fingerprint" | "ip" | "behavior-or-account" | "not-403"
+```
+
+It accepts `cookies=` and `proxy=`, so an **authenticated** request can be
+diagnosed, not just an anonymous one. The `behavior-or-account` verdict is
+**terminal by design** — it means a fresh token or a new fingerprint will not
+help, so the correct next action is to stop, not to escalate. Treating it as
+"try harder" burns days.
+
+Use it before concluding that a site is walled. A surprising share of "walled"
+verdicts are a local defect: on 2026-08-02 a consumer's stealth call had never
+executed once (missing required argument, swallowed `TypeError`) while logging a
+line indistinguishable from a Cloudflare block.

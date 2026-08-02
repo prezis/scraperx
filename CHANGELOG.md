@@ -5,7 +5,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.0] — 2026-08-02
+
+> **Consolidating release — reconciles 4 months of unversioned work.**
+>
+> Version discipline lapsed after `1.7.0` (2026-04-26): **14 commits, 7 of them
+> feature drops, all shipped under the same version string.** That is not a
+> cosmetic problem — it is what made the 2026-08-02 outage possible. The
+> pip-installed copy of `scraperx` was a strict SUBSET of this source (missing
+> `scrapling_stealth`, `reddit`, `silent_video_ocr`, `docs_crawler`,
+> `fingerprint_audit`, `method_telemetry`) **while reporting the same version
+> 1.7.0**, so nothing — not pip, not a human, not an agent — could detect the
+> drift. Six documented capabilities were silently unavailable for weeks, and
+> the project wiki advertised them the whole time.
+>
+> Three bookkeeping surfaces had three different truths: `pyproject.toml` said
+> 1.7.0, this CHANGELOG's last release said 1.4.3, and the code shipped six
+> modules beyond both. `tests/test_version_consistency.py` now makes that
+> divergence a **test failure** instead of a silent liability.
+
+### Added — since 1.7.0 (each with the commit that shipped it)
+
+- **`scrapling_stealth`** (`5f08f64`, 2026-05-16) — Cloudflare/Turnstile bypass leg via
+  Scrapling's `StealthyFetcher`. `fetch_stealth()` and `fetch_stealth_xhr()`.
+  Proven 2026-05-06 on `intel.arkm.com`, 2026-05-31 on DexScreener Base trending
+  (403 → 200, 94 token CAs).
+- **`reddit`** (`83b65ea`, 2026-07-19) — `RedditScraper`, no-login tiered access
+  (old.reddit.com + `.json` endpoints, `fetch_stealth` for walled pages).
+  Earlier `8e767f9` (2026-04-27) added jittered inter-sub cooldown and
+  retry-with-backoff on 403/429.
+- **`method_telemetry`** (`83b65ea`, 2026-07-19) — self-learning cascade ledger;
+  `preferred_order()` / `record()`. Currently wired into `reddit.py` only.
+- **`fingerprint_audit`** (`5892b0e`, 2026-07-16) — self-verifies the stealth
+  fingerprint, the layer Scrapling itself lacks. `diagnose_403()` separates
+  `fingerprint` / `ip` / `behavior-or-account` / `not-403`.
+- **`silent_video_ocr`** (`5b138b5` + `94cbb35`, 2026-05-17) — frame-OCR for silent
+  screen-recordings; auto-fallback from the tweet-video path.
+- **`docs_crawler`** (`bef68a0`, 2026-05-03) — exhaustive documentation-site crawler.
+- **6 OSINT scraping primitives** ported from wojak-wojtek (`938489a`, 2026-05-01).
+- **`explorer_label`** (`0bb896c`, 2026-05-01) — chip extraction from Etherscan-family pages.
+- **`fetch_stealth_xhr` contract lock** (`8a3f1d6`, 2026-08-02) — 3 tests pinning the
+  required `xhr_pattern` argument and the 3-tuple return. A consumer had drifted to
+  `fetch_stealth_xhr(url, timeout=90)` unpacked into two names; the resulting
+  `TypeError` was swallowed by a broad handler that logged a line indistinguishable
+  from a real Cloudflare block, so the call had **never executed once** while
+  producing evidence that it had been walled.
+
+### Fixed
+
+- **Install drift is now detectable.** `tests/test_version_consistency.py` asserts
+  `pyproject.toml` version == `scraperx.__version__` == newest CHANGELOG release
+  heading. Any future feature drop that forgets the bump fails CI instead of
+  silently shipping a phantom version.
+
+### Note on earlier detail
+
+Entries below this line that predate 1.5.0 were written contemporaneously. The
+1.5.0/1.6.0/1.7.0 headings were reconstructed from git history on 2026-08-02 —
+they were bumped in `pyproject.toml` at the time but never recorded here.
+
+## [1.7.0] — 2026-04-26
+
+### Added
+
+- **TradingView symbol/exchange resolver with negative cache** (`c42a61b`, Phase 2.2 P1).
+
+## [1.6.0] — 2026-04-26
+
+### Added
+
+- **Topic-first GitHub repo discovery** (`73ce24b`, Phase 2.2 P3).
+
+## [1.5.0] — 2026-04-26
+
+### Added
+
+- **`smart_fetch` thin-client** (`64af337`) — Jina → urllib → Playwright cascade.
+- `.gitleaksignore` for Solana mint-address false positives (`9e732ae`).
+
+## Appendix — expanded detail for 1.8.0 items
+
+> Not a release. This is the contemporaneous prose that sat in the old
+> `[Unreleased]` section until 2026-08-02; it documents the DexScreener stealth
+> proof and `docs_crawler` in more depth than the 1.8.0 summary above. Kept
+> verbatim rather than deleted — the recipes are load-bearing.
 
 ### Added
 
