@@ -42,6 +42,7 @@ References (saved for next-session-context):
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -359,6 +360,122 @@ def crawl(root_url: str, output_dir: str | Path, *,
     return result
 
 
+def render_shells(
+    result: CrawlResult,
+    *,
+    profile: str | None = None,
+    timeout: int = 90,
+    sleep_between: float = DEFAULT_SLEEP_BETWEEN,
+    max_shells: int | None = None,
+    **session_opts,
+) -> int:
+    """Re-fetch the shell pages through ONE stealth browser. Returns pages recovered.
+
+    ``crawl()`` flags every page with <500 chars of prose as a "shell" — a React
+    app that curl received as an empty skeleton — and lists them in ``_SHELLS.md``
+    under the header "Pages needing playwright render". That queue has existed
+    since 2026-05-03 with nothing to drain it. This is the drain.
+
+    All shells go through a SINGLE ``fetch_stealth_session``, so the batch pays
+    browser start once rather than once per page, and a profile dir keeps any
+    Cloudflare clearance across the whole run.
+
+        >>> res = crawl("https://docs.example.com/", "/tmp/out")
+        >>> render_shells(res, profile="~/.cache/scraperx/profiles/docs.example.com")
+
+    Recovered pages have their ``.txt`` rewritten in place and their PageResult
+    updated (``is_shell`` flips False when the render clears MIN_PROSE_CHARS), then
+    the digest is rewritten so ``_DIGEST.md`` / ``_SHELLS.md`` reflect reality.
+
+    Args:
+        result: a CrawlResult from ``crawl()``. Mutated in place.
+        profile: persistent browser-profile dir. Defaults to
+                 ``~/.cache/scraperx/profiles/<host>`` derived from the crawl root —
+                 ONE dir per host, never shared between sites.
+        timeout: per-page budget in seconds. 90 is the stealth default because
+                 Cloudflare's solver routinely needs 30-60s.
+        max_shells: cap the batch (useful for a first live run).
+        **session_opts: forwarded to ``stealth_session`` (extra_kwargs=, retries=…).
+
+    Raises:
+        ScraplingNotAvailable: the [stealth] extra is not installed. Propagates —
+                 it is a setup problem, not a per-page failure.
+        Anything in the defect tuple (TypeError/ValueError/…): a code defect
+                 aborts the batch by design, so it can never be mistaken for a
+                 site-wide block.
+    """
+    # Local import: docs_crawler must stay usable without the [stealth] extra.
+    from scraperx.scrapling_stealth import fetch_stealth_session
+
+    shells = [p for p in result.pages if p.is_shell and p.http_status == 200]
+    if max_shells is not None:
+        shells = shells[:max_shells]
+    if not shells:
+        logger.info("render_shells: nothing to render")
+        return 0
+
+    if profile is None:
+        host = re.sub(r"^https?://", "", result.root_url).split("/", 1)[0]
+        profile = f"~/.cache/scraperx/profiles/{host}"
+
+    by_url = {p.url: p for p in shells}
+    recovered = 0
+
+    logger.info(
+        "render_shells: %d shell page(s) through ONE browser (profile=%s)",
+        len(shells), profile,
+    )
+    # contextlib.closing is REQUIRED, not decorative: if this loop raises, an
+    # unclosed generator is an unclosed headless Chromium. See the
+    # fetch_stealth_session docstring.
+    gen = fetch_stealth_session(
+        [p.url for p in shells],
+        timeout=timeout,
+        sleep_between=sleep_between,
+        profile=profile,
+        **session_opts,
+    )
+    with contextlib.closing(gen):
+        for res in gen:
+            page = by_url.get(res.url)
+            if page is None:  # pragma: no cover — url set is built above
+                continue
+            if not res.ok:
+                logger.warning(
+                    "render_shells: %s -> %s (%s)", res.url, res.error, res.error_kind
+                )
+                page.error = res.error
+                continue
+
+            text = extract_text(res.content)
+            if len(text) <= page.text_chars:
+                # The render did not beat what curl already had. Keep the old
+                # text and say so — silently overwriting with something WORSE is
+                # how a "fix" quietly destroys data.
+                logger.info(
+                    "render_shells: %s no better after render (%d -> %d chars), kept original",
+                    res.url, page.text_chars, len(text),
+                )
+                continue
+
+            (result.output_dir / f"{page.slug}.txt").write_text(text, encoding="utf-8")
+            (result.output_dir / f"{page.slug}.html").write_text(
+                res.content, encoding="utf-8"
+            )
+            page.html_bytes = len(res.content.encode("utf-8", "replace"))
+            page.text_chars = len(text)
+            page.text_words = len(text.split())
+            page.error = None
+            if page.text_chars >= MIN_PROSE_CHARS:
+                page.is_shell = False
+                result.shells -= 1
+                recovered += 1
+
+    _write_digest(result)
+    logger.info("render_shells: recovered %d/%d shell page(s)", recovered, len(shells))
+    return recovered
+
+
 def _write_digest(result: CrawlResult) -> None:
     """Write _DIGEST.md and _SHELLS.md to output_dir."""
     out = result.output_dir
@@ -438,6 +555,21 @@ def _main_docs_crawl() -> int:
     parser.add_argument("--include-encoded-dups", action="store_true",
                         help="Don't skip URLs with %%20 (default: skip)")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--stealth-shells", action="store_true",
+        help="After crawling, re-fetch the shell pages (React skeletons that curl "
+             "got empty) through ONE stealth browser. Requires the [stealth] extra. "
+             "Slow: 30-90s per page.",
+    )
+    parser.add_argument(
+        "--stealth-profile", default=None,
+        help="Browser-profile dir for --stealth-shells. Defaults to "
+             "~/.cache/scraperx/profiles/<host> — one per host, never shared.",
+    )
+    parser.add_argument(
+        "--max-shells", type=int, default=None,
+        help="Cap how many shells --stealth-shells renders (use on a first run).",
+    )
 
     args = parser.parse_args(__import__("sys").argv[2:])
 
@@ -465,6 +597,25 @@ def _main_docs_crawl() -> int:
     print(f"  Digest: {result.output_dir}/_DIGEST.md")
     if result.shells:
         print(f"  Render queue: {result.output_dir}/_SHELLS.md")
+
+    if args.stealth_shells and result.shells:
+        before = result.shells
+        print(f"\nRendering {before} shell page(s) through ONE stealth browser…")
+        try:
+            recovered = render_shells(
+                result,
+                profile=args.stealth_profile,
+                sleep_between=args.sleep_between,
+                max_shells=args.max_shells,
+            )
+        except Exception as e:  # noqa: BLE001 — surface the TYPE, never a bare "failed"
+            print(f"  stealth render FAILED: {type(e).__name__}: {e}")
+            print("  (install with: pip install 'scraperx[stealth]' && scrapling install)")
+            return 1
+        print(f"  Recovered: {recovered}/{before}")
+        print(f"  Shells remaining: {result.shells}")
+    elif args.stealth_shells:
+        print("\n--stealth-shells: nothing to render (no shells).")
     return 0
 
 
