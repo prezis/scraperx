@@ -105,10 +105,30 @@ def test_non_shell_pages_are_not_refetched(fake_session, tmp_path):
     )
 
 
-def test_non_200_shells_are_skipped(fake_session, tmp_path):
+def test_404_is_not_retried(fake_session, tmp_path):
+    """A 404 is GONE, not blocked — a browser cannot conjure it back.
+
+    This test predates the wall lane and caught a real over-reach when it was
+    added: the first cut treated EVERY non-200 as a wall, which would have burned
+    a 30-90 s browser round-trip on every dead link. Only WALL_STATUSES
+    (401/403/429/503) are retried.
+    """
     res = _mk(tmp_path, [_shell("a"), _shell("dead", status=404)])
     render_shells(res)
     assert fake_session["urls"] == ["https://docs.example.com/a"]
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 503])
+def test_wall_statuses_are_retried(fake_session, tmp_path, status):
+    page = PageResult(
+        url=f"https://docs.example.com/w{status}", slug=f"w{status}",
+        http_status=status, html_bytes=900, text_chars=40, text_words=8,
+        is_shell=True,
+    )
+    res = _mk(tmp_path, [page])
+    res.shells, res.walled = 0, 1
+    render_shells(res)
+    assert fake_session["urls"] == [page.url], f"{status} should be treated as a wall"
 
 
 def test_recovered_text_is_written_to_disk(fake_session, tmp_path):
@@ -176,6 +196,76 @@ def test_no_shells_is_a_noop(fake_session, tmp_path):
     res = _mk(tmp_path, [good])
     assert render_shells(res) == 0
     assert fake_session["urls"] == [], "must not open a browser for zero work"
+
+
+def test_walled_pages_are_retried_and_listed(fake_session, tmp_path):
+    """A 403 is a WALL, not a shell — and stealth is what actually beats it.
+
+    Until 2026-08-02 walled pages were counted in `result.shells` and then
+    filtered out of every queue by `http_status == 200`, so the summary said 12
+    while _SHELLS.md listed 8. Counted, then dropped, silently.
+    """
+    walled = PageResult(
+        url="https://docs.example.com/blocked", slug="blocked", http_status=403,
+        html_bytes=900, text_chars=40, text_words=8, is_shell=True,
+    )
+    res = _mk(tmp_path, [walled])
+    res.shells = 0
+    res.walled = 1
+
+    recovered = render_shells(res)
+    assert recovered == 1, "the walled page must be RETRIED, not skipped"
+    assert fake_session["urls"] == [walled.url]
+    assert res.walled == 0, "recovery must decrement the bucket it was counted in"
+    assert res.shells == 0, "and must NOT touch the other bucket"
+    assert walled.http_status == 200, "stealth got in — it is no longer walled"
+
+
+def test_walls_are_retried_before_shells(fake_session, tmp_path):
+    """Walls first: that is the lane with proven evidence behind it."""
+    shell = _shell("thin")
+    walled = PageResult(
+        url="https://docs.example.com/blocked", slug="blocked", http_status=503,
+        html_bytes=900, text_chars=40, text_words=8, is_shell=True,
+    )
+    res = _mk(tmp_path, [shell, walled])
+    res.walled = 1
+    render_shells(res)
+    assert fake_session["urls"][0] == walled.url
+
+
+def test_walled_queue_file_is_written(fake_session, tmp_path):
+    from scraperx.docs_crawler import _write_digest
+
+    walled = PageResult(
+        url="https://docs.example.com/blocked", slug="blocked", http_status=403,
+        html_bytes=900, text_chars=40, text_words=8, is_shell=True,
+    )
+    res = _mk(tmp_path, [walled])
+    _write_digest(res)
+    txt = (res.output_dir / "_WALLED.md").read_text(encoding="utf-8")
+    assert "[403] https://docs.example.com/blocked" in txt
+    assert "NOT JS shells" in txt, "the file must say what it is, or it gets confused again"
+
+
+def test_shell_count_matches_the_shell_file(fake_session, tmp_path):
+    """The defect in one assertion: a count that disagrees with its own list."""
+    from scraperx.docs_crawler import _write_digest
+
+    pages = [
+        _shell("thin1"), _shell("thin2"),
+        PageResult(url="https://docs.example.com/b1", slug="b1", http_status=403,
+                   html_bytes=900, text_chars=40, text_words=8, is_shell=True),
+    ]
+    res = _mk(tmp_path, pages)
+    # emulate crawl()'s split accounting
+    res.shells, res.walled = 2, 1
+    _write_digest(res)
+
+    listed = (res.output_dir / "_SHELLS.md").read_text(encoding="utf-8").count("\n- ")
+    walled_listed = (res.output_dir / "_WALLED.md").read_text(encoding="utf-8").count("\n- ")
+    assert listed == res.shells, f"shells={res.shells} but _SHELLS.md lists {listed}"
+    assert walled_listed == res.walled, f"walled={res.walled} but _WALLED.md lists {walled_listed}"
 
 
 def test_digest_is_rewritten_after_recovery(fake_session, tmp_path):

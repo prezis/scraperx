@@ -63,6 +63,13 @@ DEFAULT_TIMEOUT = 30
 DEFAULT_SLEEP_BETWEEN = 0.4  # be polite to the docs server
 MIN_PROSE_CHARS = 500  # below this we suspect a React shell
 
+#: HTTP statuses that mean "a bot wall turned curl away", i.e. the page probably
+#: EXISTS and a stealth browser can plausibly reach it.
+#: Deliberately NOT every non-200: a 404/410 means the page is genuinely gone, and
+#: retrying it through a browser burns a 30-90 s round-trip to learn nothing. That
+#: over-reach was caught by an existing test when this lane was added (2026-08-02).
+WALL_STATUSES = frozenset({401, 403, 429, 503})
+
 
 @dataclass
 class PageResult:
@@ -88,6 +95,11 @@ class CrawlResult:
     sitemap_url: Optional[str] = None
     fetched: int = 0
     shells: int = 0
+    #: Pages curl could not open at all (403/503 — a bot wall, NOT a JS shell).
+    #: Tracked separately since 2026-08-02: they used to be counted inside
+    #: `shells` while being excluded from every queue, so the summary said 12
+    #: and the file listed 8. A count that does not match the list beneath it.
+    walled: int = 0
     errors: int = 0
 
 
@@ -440,7 +452,13 @@ def crawl(root_url: str, output_dir: str | Path, *,
 
         result.pages.append(page)
         result.fetched += 1
-        if page.is_shell:
+        # A thin page and a BLOCKED page are different problems with different
+        # fixes. Counting them together is how `shells: 12` sat above a file
+        # listing 8 — the queues have always filtered on http_status == 200,
+        # so walled pages were counted and then silently dropped.
+        if page.http_status in WALL_STATUSES:
+            result.walled += 1
+        elif page.is_shell:
             result.shells += 1
         if sleep_between:
             time.sleep(sleep_between)
@@ -496,12 +514,28 @@ def render_shells(
     # Local import: docs_crawler must stay usable without the [stealth] extra.
     from scraperx.scrapling_stealth import fetch_stealth_session
 
+    # TWO distinct populations, ONE fix. Stealth solves both, but they are not
+    # the same problem and the report must say which was which:
+    #   thin + 200        = JS shell   (curl got the page, the prose is in JS)
+    #   non-200 (403/503) = BOT WALL   (curl never got the page at all)
+    # Walls are the case with PROVEN evidence behind it (DexScreener 403 -> 200,
+    # 626k chars). Shells are the case we went looking for on 2026-08-02 and
+    # could not find once across 8 sites and 37 pages — modern docs stacks
+    # pre-render for SEO. So the wall lane is the one that earns this feature.
     shells = [p for p in result.pages if p.is_shell and p.http_status == 200]
+    walled = [p for p in result.pages if p.http_status in WALL_STATUSES]
+    targets = walled + shells  # walls first: highest proven yield
     if max_shells is not None:
-        shells = shells[:max_shells]
-    if not shells:
+        targets = targets[:max_shells]
+    if not targets:
         logger.info("render_shells: nothing to render")
         return 0
+    logger.info(
+        "render_shells: %d walled + %d shell page(s) to retry",
+        sum(1 for p in targets if p.http_status in WALL_STATUSES),
+        sum(1 for p in targets if p.http_status == 200),
+    )
+    shells = targets
 
     if profile is None:
         host = re.sub(r"^https?://", "", result.root_url).split("/", 1)[0]
@@ -556,8 +590,16 @@ def render_shells(
             page.text_words = len(text.split())
             page.error = None
             if page.text_chars >= MIN_PROSE_CHARS:
+                # Decrement the SAME bucket the page was counted into, or the
+                # summary drifts from the queues again — the exact defect this
+                # release exists to close.
+                was_walled = page.http_status in WALL_STATUSES
                 page.is_shell = False
-                result.shells -= 1
+                if was_walled:
+                    result.walled -= 1
+                    page.http_status = 200  # stealth got in; it is no longer walled
+                else:
+                    result.shells -= 1
                 recovered += 1
 
     _write_digest(result)
@@ -596,6 +638,26 @@ def _write_digest(result: CrawlResult) -> None:
         if p.is_shell and p.http_status == 200:
             shell_lines.append(f"- {p.url}  (chars={p.text_chars})")
     shells_md.write_text("\n".join(shell_lines))
+
+    # Walled pages — curl never got in. A DIFFERENT problem from a JS shell, and
+    # until 2026-08-02 they were counted in the summary and then listed nowhere:
+    # `shells: 12` above a file containing 8. Now they get their own queue, which
+    # is also the one with proven evidence behind it (stealth beat a DexScreener
+    # 403 for 626k chars).
+    walled_md = out / "_WALLED.md"
+    walled_lines = [
+        "# Pages behind a bot wall — curl never got in (non-200)",
+        "",
+        "These are NOT JS shells. A shell means the page arrived empty of prose;",
+        "these did not arrive at all. Drain with:",
+        "",
+        "    scraperx docs-crawl <root> --stealth-shells",
+        "",
+    ]
+    for p in result.pages:
+        if p.http_status in WALL_STATUSES:
+            walled_lines.append(f"- [{p.http_status}] {p.url}")
+    walled_md.write_text("\n".join(walled_lines))
 
 
 def iter_pages(output_dir: str | Path) -> Iterator[tuple[str, str]]:
@@ -681,15 +743,19 @@ def _main_docs_crawl() -> int:
     )
 
     print(f"Crawled {result.fetched} pages → {result.output_dir}")
-    print(f"  Shells (need render): {result.shells}")
+    print(f"  Shells (thin but 200): {result.shells}")
+    print(f"  Walled (curl blocked): {result.walled}")
     print(f"  Errors: {result.errors}")
     print(f"  Digest: {result.output_dir}/_DIGEST.md")
     if result.shells:
         print(f"  Render queue: {result.output_dir}/_SHELLS.md")
+    if result.walled:
+        print(f"  Wall queue:   {result.output_dir}/_WALLED.md   <- stealth beats these")
 
-    if args.stealth_shells and result.shells:
-        before = result.shells
-        print(f"\nRendering {before} shell page(s) through ONE stealth browser…")
+    if args.stealth_shells and (result.shells or result.walled):
+        before = result.shells + result.walled
+        print(f"\nRetrying {result.walled} walled + {result.shells} shell page(s) "
+              "through ONE stealth browser…")
         try:
             recovered = render_shells(
                 result,
@@ -702,9 +768,9 @@ def _main_docs_crawl() -> int:
             print("  (install with: pip install 'scraperx[stealth]' && scrapling install)")
             return 1
         print(f"  Recovered: {recovered}/{before}")
-        print(f"  Shells remaining: {result.shells}")
+        print(f"  Remaining: {result.walled} walled + {result.shells} shell")
     elif args.stealth_shells:
-        print("\n--stealth-shells: nothing to render (no shells).")
+        print("\n--stealth-shells: nothing to retry (no walls, no shells).")
     return 0
 
 
