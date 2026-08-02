@@ -53,6 +53,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterator, Optional
+from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
 logger = logging.getLogger(__name__)
@@ -155,16 +156,24 @@ def discover_sitemap(root_url: str, *, user_agent: str = DEFAULT_USER_AGENT,
     base = root_url.rstrip("/")
     candidates = [f"{base}/sitemap.xml", f"{base}/sitemap_index.xml"]
 
+    # A docs root is often a SUBPATH (https://site/docs/en/) while the sitemap
+    # lives at the DOMAIN root. Found 2026-08-02: code.claude.com/docs/en/ has no
+    # sitemap, code.claude.com/ has 2011 URLs — and the crawler simply gave up.
+    parsed = urlparse(base)
+    if parsed.scheme and parsed.netloc and parsed.path not in ("", "/"):
+        domain = f"{parsed.scheme}://{parsed.netloc}"
+        candidates += [f"{domain}/sitemap.xml", f"{domain}/sitemap_index.xml"]
+
     for sitemap_url in candidates:
         try:
             xml = _curl_text(sitemap_url, user_agent=user_agent, timeout=timeout)
-            urls = _parse_sitemap(xml)
-            if urls:
-                logger.info("Found %d URLs in %s", len(urls), sitemap_url)
-                return sitemap_url, urls
         except Exception as e:  # noqa: BLE001
             logger.debug("Sitemap probe failed for %s: %s", sitemap_url, e)
             continue
+        urls = _expand_sitemap(xml, sitemap_url, user_agent=user_agent, timeout=timeout)
+        if urls:
+            logger.info("Found %d URLs in %s", len(urls), sitemap_url)
+            return sitemap_url, urls
 
     # Fall back to robots.txt
     try:
@@ -174,8 +183,11 @@ def discover_sitemap(root_url: str, *, user_agent: str = DEFAULT_USER_AGENT,
             if line.lower().startswith("sitemap:"):
                 sitemap_url = line.split(":", 1)[1].strip()
                 xml = _curl_text(sitemap_url, user_agent=user_agent, timeout=timeout)
-                urls = _parse_sitemap(xml)
+                urls = _expand_sitemap(xml, sitemap_url, user_agent=user_agent,
+                                       timeout=timeout)
                 if urls:
+                    logger.info("Found %d URLs via robots.txt -> %s",
+                                len(urls), sitemap_url)
                     return sitemap_url, urls
     except Exception:
         pass
@@ -183,12 +195,73 @@ def discover_sitemap(root_url: str, *, user_agent: str = DEFAULT_USER_AGENT,
     return None, []
 
 
-def _parse_sitemap(xml: str) -> list[str]:
-    """Parse sitemap XML — handles both single sitemap and sitemap_index.
+# A sitemap index may point at further indexes. Bound the walk so a cyclic or
+# hostile index cannot spin us forever.
+MAX_SITEMAP_DEPTH = 3
+MAX_CHILD_SITEMAPS = 50
 
-    Tries the standard sitemap namespace first; falls back to local-name
-    matching for non-conformant XML.
+
+def _expand_sitemap(xml: str, sitemap_url: str, *, user_agent: str,
+                    timeout: int, _depth: int = 0) -> list[str]:
+    """Return page URLs, following <sitemapindex> children when present.
+
+    Without this, an index yields its CHILD SITEMAP urls, the caller crawls those
+    XML files as if they were docs pages, and the run reports success over a
+    near-empty result ("Crawled 1 pages, 0 errors" on a 1000-page site).
     """
+    pages = _parse_sitemap(xml)
+    if pages:
+        return pages
+    if not _is_sitemap_index(xml):
+        return []
+    if _depth >= MAX_SITEMAP_DEPTH:
+        logger.warning(
+            "sitemap index nested deeper than %d at %s — stopping",
+            MAX_SITEMAP_DEPTH, sitemap_url,
+        )
+        return []
+
+    children = _locs(xml)[:MAX_CHILD_SITEMAPS]
+    logger.info("%s is a sitemap index -> %d child sitemap(s)",
+                sitemap_url, len(children))
+    collected: list[str] = []
+    seen: set[str] = set()
+    for child in children:
+        try:
+            child_xml = _curl_text(child, user_agent=user_agent, timeout=timeout)
+        except Exception as e:  # noqa: BLE001 — one bad child must not sink the rest
+            logger.warning("child sitemap %s failed: %s", child, e)
+            continue
+        for u in _expand_sitemap(child_xml, child, user_agent=user_agent,
+                                 timeout=timeout, _depth=_depth + 1):
+            if u not in seen:
+                seen.add(u)
+                collected.append(u)
+    return collected
+
+
+def _is_sitemap_index(xml: str) -> bool:
+    """True if this XML is a <sitemapindex> (a list of OTHER sitemaps).
+
+    Why this exists (found 2026-08-02 by running the crawler for real):
+    ``_parse_sitemap`` used to claim in its docstring that it "handles both
+    single sitemap and sitemap_index" — it did not. It harvested every ``<loc>``
+    regardless of whether the parent was ``<url>`` (a page) or ``<sitemap>`` (a
+    CHILD SITEMAP), so on an index the crawler downloaded the sub-sitemap XML
+    files AS IF THEY WERE PAGES and reported "Crawled 1 pages, 0 errors".
+
+    Thousands of pages silently missing, behind a success message. Same class as
+    every other defect found this day: a plausible-looking report over a hole.
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return False
+    return root.tag.rsplit("}", 1)[-1] == "sitemapindex"
+
+
+def _locs(xml: str) -> list[str]:
+    """Every <loc> in the document, namespace-tolerant. Never raises."""
     try:
         root = ET.fromstring(xml)
     except ET.ParseError:
@@ -203,6 +276,22 @@ def _parse_sitemap(xml: str) -> list[str]:
             if el.tag.rsplit("}", 1)[-1] == "loc" and el.text
         ]
     return [u.strip() for u in urls if u and u.strip()]
+
+
+def _parse_sitemap(xml: str) -> list[str]:
+    """Parse a sitemap and return PAGE urls.
+
+    A ``<sitemapindex>`` contains no pages — only pointers to other sitemaps —
+    so this returns ``[]`` for one. Use ``_is_sitemap_index`` + ``_locs`` to
+    walk the children; ``discover_sitemap`` does exactly that.
+
+    Returning ``[]`` rather than the child-sitemap URLs is the whole fix: those
+    URLs are XML files, and handing them back as "pages" is what made the
+    crawler fetch a sitemap and call it a docs page.
+    """
+    if _is_sitemap_index(xml):
+        return []
+    return _locs(xml)
 
 
 def _validate_url(url: str) -> str:

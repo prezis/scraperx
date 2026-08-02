@@ -273,3 +273,133 @@ def test_iter_pages_yields_slug_text_pairs(tmp_path: Path):
     pairs = dict(iter_pages(tmp_path))
     assert pairs == {"page-a": "Alpha content", "page-b": "Beta content"}
     assert "_DIGEST" not in pairs  # underscore-prefixed files are skipped
+
+
+# ── sitemap INDEX + domain-root fallback (both found LIVE, 2026-08-02) ────────
+#
+# Two silent defects, neither visible from reading the code — both surfaced the
+# moment the crawler was pointed at real sites:
+#
+# 1. `_parse_sitemap`'s docstring CLAIMED it "handles both single sitemap and
+#    sitemap_index". It did not: it harvested every <loc> regardless of whether
+#    the parent was <url> (a page) or <sitemap> (a CHILD SITEMAP). On
+#    portal.thirdweb.com that meant downloading one sub-sitemap XML file AS a
+#    docs page and printing "Crawled 1 pages, 0 errors" for a site with
+#    thousands. A success message laid over a near-empty result.
+#
+# 2. `discover_sitemap` only probed <root>/sitemap.xml. Given a docs root that is
+#    a SUBPATH (https://code.claude.com/docs/en/) it found nothing and raised —
+#    while https://code.claude.com/sitemap.xml had 2011 URLs sitting right there.
+
+import scraperx.docs_crawler as dc  # noqa: E402
+
+SITEMAP_INDEX_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://example.com/sitemap-0.xml</loc></sitemap>
+  <sitemap><loc>https://example.com/sitemap-1.xml</loc></sitemap>
+</sitemapindex>"""
+
+CHILD_0_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/a</loc></url>
+  <url><loc>https://example.com/b</loc></url>
+</urlset>"""
+
+CHILD_1_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/c</loc></url>
+  <url><loc>https://example.com/a</loc></url>
+</urlset>"""
+
+
+def test_parse_sitemap_returns_no_pages_for_an_index():
+    """THE regression test: an index holds pointers, not pages.
+
+    Returning the child-sitemap URLs from here is exactly what made the crawler
+    fetch a sitemap XML file and count it as a documentation page.
+    """
+    assert dc._parse_sitemap(SITEMAP_INDEX_XML) == []
+
+
+def test_is_sitemap_index_discriminates():
+    assert dc._is_sitemap_index(SITEMAP_INDEX_XML) is True
+    assert dc._is_sitemap_index(CHILD_0_XML) is False
+    assert dc._is_sitemap_index("<not valid xml") is False
+
+
+def test_expand_sitemap_follows_index_children(monkeypatch):
+    fetched = []
+
+    def fake_curl(url, **kw):
+        fetched.append(url)
+        return {
+            "https://example.com/sitemap-0.xml": CHILD_0_XML,
+            "https://example.com/sitemap-1.xml": CHILD_1_XML,
+        }[url]
+
+    monkeypatch.setattr(dc, "_curl_text", fake_curl)
+    urls = dc._expand_sitemap(
+        SITEMAP_INDEX_XML, "https://example.com/sitemap.xml",
+        user_agent="UA", timeout=5,
+    )
+    assert len(fetched) == 2, "both child sitemaps must be fetched"
+    assert urls == [
+        "https://example.com/a",
+        "https://example.com/b",
+        "https://example.com/c",
+    ], "pages from all children, de-duplicated, order preserved"
+
+
+def test_expand_sitemap_survives_one_bad_child(monkeypatch):
+    def fake_curl(url, **kw):
+        if url.endswith("sitemap-0.xml"):
+            raise RuntimeError("404")
+        return CHILD_1_XML
+
+    monkeypatch.setattr(dc, "_curl_text", fake_curl)
+    urls = dc._expand_sitemap(
+        SITEMAP_INDEX_XML, "https://example.com/sitemap.xml",
+        user_agent="UA", timeout=5,
+    )
+    assert urls == ["https://example.com/c", "https://example.com/a"], (
+        "one unreachable child must not sink the whole discovery"
+    )
+
+
+def test_expand_sitemap_depth_is_bounded(monkeypatch):
+    """A self-referential index must not spin forever."""
+    loop = """<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://example.com/loop.xml</loc></sitemap>
+</sitemapindex>"""
+    calls = {"n": 0}
+
+    def fake_curl(url, **kw):
+        calls["n"] += 1
+        return loop
+
+    monkeypatch.setattr(dc, "_curl_text", fake_curl)
+    urls = dc._expand_sitemap(
+        loop, "https://example.com/sitemap.xml", user_agent="UA", timeout=5,
+    )
+    assert urls == []
+    assert calls["n"] <= dc.MAX_SITEMAP_DEPTH + 1, "recursion must be bounded"
+
+
+def test_discover_sitemap_falls_back_to_domain_root(monkeypatch):
+    """A docs root that is a SUBPATH must still find the domain-root sitemap."""
+    tried = []
+
+    def fake_curl(url, **kw):
+        tried.append(url)
+        if url == "https://example.com/sitemap.xml":
+            return CHILD_0_XML
+        raise RuntimeError("404")
+
+    monkeypatch.setattr(dc, "_curl_text", fake_curl)
+    used, urls = dc.discover_sitemap("https://example.com/docs/en/")
+    assert used == "https://example.com/sitemap.xml"
+    assert urls == ["https://example.com/a", "https://example.com/b"]
+    assert tried[0] == "https://example.com/docs/en/sitemap.xml", (
+        "the specific path must still be tried FIRST — the root is a fallback"
+    )
