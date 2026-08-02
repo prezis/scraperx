@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] — 2026-08-02
+
+### Added
+
+- **`smart_fetch(..., stealth_profile=...)` — persistent, cookie-carrying stealth sessions.**
+  The stealth leg can finally be handed a browser profile directory, so Cloudflare
+  clearance and any established login **survive across calls and across process
+  restarts**, instead of every fetch starting cold and re-paying the 30-90 s
+  Turnstile round-trip.
+
+  This was never a missing capability — it was a missing wire. Scrapling has
+  always taken `StealthySession(user_data_dir=...)` (the persistent
+  `launch_persistent_context` branch) and our own `fetch_stealth()` has always
+  forwarded arbitrary kwargs. But `_fetch_scrapling_stealth` called
+  `fetch_stealth(url, timeout=timeout)` — timeout was the only knob — and
+  `smart_fetch` had no parameter to express a profile. **Zero call sites in the
+  entire tree ever passed one.** The feature was installed, documented upstream,
+  and unreachable.
+
+  ```python
+  smart_fetch(url, prefer="scrapling_stealth",
+              stealth_profile="~/.cache/scraperx/profiles/example.com")
+  ```
+
+- **`smart_fetch(..., stealth_kwargs={...})`** — escape hatch forwarded verbatim to
+  the stealth leg (`proxy`, `useragent`, `locale`, `timezone_id`, `block_ads`,
+  `real_chrome`, `retries`, …). Authoritative key list:
+  `scrapling.engines._browsers._types`. Merged after `stealth_profile`, so an
+  explicit `user_data_dir` wins. ⚠ `proxy_rotator` disables persistence upstream —
+  the two are mutually exclusive branches, not composable options.
+
+- **`tests/test_stealth_session_wiring.py`** — 8 offline tests pinning the wire
+  itself (shorthand → `user_data_dir`, directory creation, `~` expansion, verbatim
+  kwarg forwarding, documented precedence, merge-not-replace, and two calls sharing
+  one profile). Verified to bite: 7 of the 8 fail against the pre-fix `fetch.py`.
+
+### Changed
+
+- **`scrapling` upgraded 0.4.7 → 0.4.12** (was 5 releases / 3.5 months behind; nothing
+  pinned us — `pyproject.toml` says `>=0.4.7`). Stale browser fingerprints are
+  themselves a detection signal, and 0.4.9 is reported to fix browser navigation when
+  `init_script` is combined with `user_data_dir` — precisely the persistent path this
+  release wires up. *(That specific release note was read from the upstream changelog
+  by a subagent and not independently re-verified here; the upgrade stands on the
+  version gap alone.)* Full suite green on 0.4.12: 858 passed.
+
+- `_fetch_scrapling_stealth()` gained a keyword-only `extra_kwargs`. Options are bound
+  with `functools.partial` so the cascade dispatch loop still calls every leg with the
+  same `(url, timeout)` signature — existing monkeypatch-by-name tests are untouched.
+
 ## [1.8.0] — 2026-08-02
 
 > **Consolidating release — reconciles 4 months of unversioned work.**

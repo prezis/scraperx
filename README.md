@@ -5,14 +5,17 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/prezis/scraperx/actions/workflows/ci.yml/badge.svg)](https://github.com/prezis/scraperx/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.8.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.9.0-informational.svg)](CHANGELOG.md)
 
 ScraperX fetches social-media posts, transcribes videos, and verifies authenticity — without API keys or account credentials. Built on stdlib, with optional extras for perceptual image hashing, web scraping helpers, and GPU-accelerated speech-to-text.
 
-> **Status: beta.** Core functionality is stable (**851 tests**, offline/mocked apart from a
-> handful of live-network checks). Newest in **1.8.0**: Cloudflare-bypass stealth leg
-> (`scrapling_stealth`), no-login Reddit, frame-OCR for silent video, documentation crawler,
-> 403 fingerprint self-audit, and a self-learning method ledger — see [CHANGELOG](CHANGELOG.md).
+> **Status: beta.** Core functionality is stable — **858 tests, fully offline** (as of 1.9.0 the
+> suite no longer talks to the internet; it used to, silently, and that had been failing CI since
+> 2026-07-17). Newest in **1.9.0**: **persistent cookie-carrying stealth sessions** via
+> `smart_fetch(stealth_profile=...)` — Cloudflare clearance and logins now survive across calls
+> and process restarts. 1.8.0 brought the Cloudflare-bypass leg (`scrapling_stealth`), no-login
+> Reddit, frame-OCR for silent video, a documentation crawler, 403 fingerprint self-audit, and a
+> self-learning method ledger. See the [CHANGELOG](CHANGELOG.md).
 
 ---
 
@@ -58,7 +61,7 @@ pip install -e .
 | `[video-discovery]` | `beautifulsoup4>=4.12` | More robust HTML parsing for `discover_videos` |
 | `[whisper]` | `faster-whisper>=1.0` | GPU-accelerated transcription (4× faster than openai-whisper on CPU) |
 | `[twscrape]` | `twscrape>=0.12` | Optional account-backed twscrape backend |
-| `[stealth]` | `scrapling[fetchers]>=0.4.7` | Cloudflare-Turnstile / Interstitial / JS-challenge bypass via patchright Chromium + browserforge fingerprints. Adds the `scrapling_stealth` cascade leg. After install, run `scrapling install` to fetch the patched Chromium binary. |
+| `[stealth]` | `scrapling[fetchers]>=0.4.12` | Cloudflare-Turnstile / Interstitial / JS-challenge bypass via patchright Chromium + browserforge fingerprints. Adds the `scrapling_stealth` cascade leg **and** persistent sessions (`stealth_profile=`). After install, run `scrapling install` to fetch the patched Chromium binary. Keep this current — a stale browser fingerprint is itself a detection signal. |
 
 Combined install:
 
@@ -833,6 +836,48 @@ recovers automatically once it works again. Opt out per-instance with
 `RedditScraper(adaptive_tiers=False)`; point the ledger elsewhere (tests/CI)
 with `SCRAPERX_METHOD_TELEMETRY_PATH=/path/to/ledger.jsonl`. Any tiered
 scraper can adopt the same two calls — the ledger is namespaced by `scraper`.
+
+## Persistent stealth sessions — carrying cookies across calls (1.9.0+)
+
+By default every stealth fetch starts from a **cold, temporary browser profile**: it
+re-solves Turnstile (30-90 s), and it cannot present a cookie you obtained earlier.
+Give it a profile directory and both problems go away.
+
+```python
+from scraperx import smart_fetch
+
+PROFILE = "~/.cache/scraperx/profiles/example.com"   # one dir PER HOST
+
+r1 = smart_fetch("https://example.com/a", prefer="scrapling_stealth",
+                 stealth_profile=PROFILE)           # solves the challenge
+r2 = smart_fetch("https://example.com/b", prefer="scrapling_stealth",
+                 stealth_profile=PROFILE)           # reuses the clearance
+```
+
+The directory is created if absent and `~` is expanded. Clearance cookies — and any
+login established in that profile — persist across calls **and across process
+restarts**, because Scrapling launches a persistent browser context instead of a
+throwaway one.
+
+Everything else upstream exposes is reachable through `stealth_kwargs`:
+
+```python
+smart_fetch(url, prefer="scrapling_stealth",
+            stealth_profile=PROFILE,
+            stealth_kwargs={"proxy": "socks5://127.0.0.1:1080",
+                            "locale": "pl-PL", "timezone_id": "Europe/Warsaw"})
+```
+
+Authoritative key list: `scrapling.engines._browsers._types`. `stealth_kwargs` is
+merged **after** `stealth_profile`, so an explicit `user_data_dir` wins.
+
+⚠ **`proxy_rotator` and persistence are mutually exclusive** — upstream takes a
+different, non-persistent branch when a rotator is set. Pick one.
+
+⚠ **A cookie is necessary, not sufficient.** Persistence beats the *challenge* layer.
+It does not beat behavioural detection or an account ban — for that,
+`fingerprint_audit.diagnose_403()` returns `behavior-or-account`, and that verdict is
+**terminal**: a fresh token or fingerprint will not help.
 
 ## Documentation crawling + fingerprint self-audit
 

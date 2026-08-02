@@ -44,7 +44,8 @@ import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Literal
+from functools import partial
+from typing import Any, Literal
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
@@ -339,7 +340,12 @@ def _fetch_playwright(url: str, timeout: int) -> tuple[str, int | None]:
             browser.close()
 
 
-def _fetch_scrapling_stealth(url: str, timeout: int) -> tuple[str, int | None]:
+def _fetch_scrapling_stealth(
+    url: str,
+    timeout: int,
+    *,
+    extra_kwargs: dict[str, Any] | None = None,
+) -> tuple[str, int | None]:
     """Fetch via Scrapling's StealthyFetcher — last-resort Cloudflare bypass.
 
     Delegates to ``scraperx.scrapling_stealth.fetch_stealth`` which lazy-imports
@@ -355,7 +361,7 @@ def _fetch_scrapling_stealth(url: str, timeout: int) -> tuple[str, int | None]:
     """
     # Local import keeps this module's own import time fast and avoids cycles.
     from scraperx.scrapling_stealth import fetch_stealth
-    return fetch_stealth(url, timeout=timeout)
+    return fetch_stealth(url, timeout=timeout, extra_kwargs=extra_kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +379,8 @@ def smart_fetch(
     strict: bool = False,
     allow_private: bool = False,
     db_path: str | None = None,
+    stealth_profile: str | None = None,
+    stealth_kwargs: dict[str, Any] | None = None,
 ) -> FetchResult:
     """Fetch a URL with the Jina → urllib → Playwright cascade.
 
@@ -394,6 +402,29 @@ def smart_fetch(
                        hosts. Off by default — defense against URL injection.
         db_path: Override the cache DB path (default ~/.scraperx/social.db).
                  Mostly for tests.
+        stealth_profile: Directory for a PERSISTENT browser profile used by the
+                 ``scrapling_stealth`` leg. This is the difference between a
+                 cold, cookie-less browser on every call and a session that
+                 REMEMBERS — Cloudflare clearance cookies, and any login you
+                 established earlier, survive across calls and across process
+                 restarts. Created if absent. Give each host its own directory
+                 (e.g. ``~/.cache/scraperx/profiles/example.com``): profiles are
+                 not something to share between unrelated sites.
+
+                 Added 2026-08-02. Scrapling has supported this the whole time
+                 (``StealthySession(user_data_dir=...)`` →
+                 ``launch_persistent_context``) and our wrapper already forwarded
+                 arbitrary kwargs — but no call site ever passed one, so every
+                 stealth fetch paid the full 30-90s Turnstile round-trip again
+                 and could never present an authenticated cookie. The capability
+                 was installed and unreachable; this is the wire.
+        stealth_kwargs: Escape hatch forwarded verbatim to the stealth leg
+                 (``proxy``, ``useragent``, ``locale``, ``timezone_id``,
+                 ``block_ads``, ``real_chrome``, ``retries``, …). Authoritative
+                 list: ``scrapling.engines._browsers._types``. Merged AFTER
+                 ``stealth_profile``, so an explicit ``user_data_dir`` here wins.
+                 NOTE: passing ``proxy_rotator`` disables persistence upstream —
+                 the two are mutually exclusive branches.
 
     Returns:
         FetchResult — check ``result.ok`` to see if the fetch succeeded.
@@ -433,11 +464,26 @@ def smart_fetch(
 
     result = FetchResult(url=url)
 
+    # Stealth options are bound onto the leg with partial() so the dispatch loop
+    # below keeps calling every leg with the same (url, timeout) signature. When
+    # no options are given the bare function is used, so the monkeypatch-by-name
+    # pattern in the existing tests keeps working untouched.
+    stealth_leg = _fetch_scrapling_stealth
+    merged_stealth: dict[str, Any] = {}
+    if stealth_profile:
+        profile_dir = os.path.abspath(os.path.expanduser(stealth_profile))
+        os.makedirs(profile_dir, exist_ok=True)
+        merged_stealth["user_data_dir"] = profile_dir
+    if stealth_kwargs:
+        merged_stealth.update(stealth_kwargs)  # explicit wins over the shorthand
+    if merged_stealth:
+        stealth_leg = partial(_fetch_scrapling_stealth, extra_kwargs=merged_stealth)
+
     leg_fns = {
         "jina": _fetch_jina,
         "urllib": _fetch_urllib,
         "playwright": _fetch_playwright,
-        "scrapling_stealth": _fetch_scrapling_stealth,
+        "scrapling_stealth": stealth_leg,
     }
 
     for mode in cascade:

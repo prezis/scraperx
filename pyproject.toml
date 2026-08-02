@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scraperx"
-version = "1.8.0"
+version = "1.9.0"
 description = "Universal scraper + video intelligence + GitHub deep analyzer — X/Twitter, YouTube, Vimeo, video discovery, impersonation detection, and trust-scored GitHub repo analysis with community mentions. No API keys required."
 readme = "README.md"
 license = {text = "MIT"}
@@ -44,7 +44,7 @@ blockchain = ["playwright>=1.58.0"]
 # patchright Chromium is ~50 MB on top of curl_cffi/browserforge/msgspec.
 # After install, run `scrapling install` to fetch the patched Chromium binary.
 # See scraperx/scrapling_stealth.py + scraperx/fetch.py for cascade integration.
-stealth = ["scrapling[fetchers]>=0.4.7"]
+stealth = ["scrapling[fetchers]>=0.4.12"]
 tv-resolve = ["tvdatafeed>=2.1.0"]
 silent-video = ["pytesseract>=0.3.13", "av>=14.0"]
 dev = ["pytest>=9.0.3", "pytest-cov>=4.0"]
