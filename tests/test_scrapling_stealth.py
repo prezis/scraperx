@@ -11,6 +11,7 @@ breaks the cascade silently in production, so we lock it down here.
 
 from __future__ import annotations
 
+import inspect
 import sys
 import types
 
@@ -236,3 +237,56 @@ def test_cascade_strict_scrapling_stealth(tmp_path, monkeypatch):
     r = smart_fetch("https://example.com", prefer="scrapling_stealth", strict=True, db_path=db)
     assert r.ok
     assert r.mode_used == "scrapling_stealth"
+
+
+# ---------------------------------------------------------------------------
+# fetch_stealth_xhr — PUBLIC CONTRACT LOCK (added 2026-08-02)
+#
+# Why this exists: this module's docstring already promised that a broken
+# signature "breaks the cascade silently in production" — but only the 2-tuple
+# `fetch_stealth` leg was ever locked. The XHR variant was not, and a consumer
+# (ca-gate `gmgn_free_api.py`) drifted to `fetch_stealth_xhr(url, timeout=90)`
+# unpacked into TWO names. Both halves were wrong: `xhr_pattern` is REQUIRED,
+# and the function returns a 3-tuple. The resulting TypeError was swallowed by
+# a broad `except Exception` whose log line was indistinguishable from a real
+# Cloudflare block — so the fallback read as "tried and walled" while never
+# having executed once. That is poisoned evidence: it made every downstream
+# "is stealth working?" measurement worthless. These tests make the drift fail
+# LOUDLY here, in our own suite, before it reaches a consumer.
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_stealth_xhr_requires_xhr_pattern():
+    """`xhr_pattern` is REQUIRED — a call omitting it must not bind.
+
+    This is the exact call shape that silently died in a consumer.
+    """
+    sig = inspect.signature(ss_mod.fetch_stealth_xhr)
+    with pytest.raises(TypeError, match="xhr_pattern"):
+        sig.bind("https://example.com", timeout=90)
+
+    # ...and the corrected shape must bind.
+    sig.bind("https://example.com", xhr_pattern=r"example\.com/api", timeout=90)
+
+
+def test_fetch_stealth_xhr_returns_three_tuple_contract():
+    """Return arity is 3 — (content, status, xhrs). Unpacking into 2 is a bug.
+
+    Consumers destructure this; if the arity changes, every call site breaks at
+    runtime with a ValueError that reads like a network failure.
+    """
+    ann = inspect.signature(ss_mod.fetch_stealth_xhr).return_annotation
+    text = ann if isinstance(ann, str) else str(ann)
+    assert text.count(",") == 2, (
+        f"fetch_stealth_xhr return arity changed: {text!r}. "
+        "Every consumer unpacks this — update them in the SAME commit."
+    )
+
+
+def test_fetch_stealth_xhr_first_two_params_stay_positional_and_required():
+    """url + xhr_pattern must stay positional-capable, in that order."""
+    params = list(inspect.signature(ss_mod.fetch_stealth_xhr).parameters.values())
+    assert [p.name for p in params[:2]] == ["url", "xhr_pattern"]
+    for p in params[:2]:
+        assert p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        assert p.default is inspect.Parameter.empty, f"{p.name} must stay required"
