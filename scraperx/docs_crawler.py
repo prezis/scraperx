@@ -56,6 +56,8 @@ from typing import Iterator, Optional
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
+from scraperx._safe_xml import UnsafeXML, safe_fromstring
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
@@ -266,8 +268,8 @@ def _is_sitemap_index(xml: str) -> bool:
     every other defect found this day: a plausible-looking report over a hole.
     """
     try:
-        root = ET.fromstring(xml)
-    except ET.ParseError:
+        root = safe_fromstring(xml)
+    except (ET.ParseError, UnsafeXML):
         return False
     return root.tag.rsplit("}", 1)[-1] == "sitemapindex"
 
@@ -275,8 +277,9 @@ def _is_sitemap_index(xml: str) -> bool:
 def _locs(xml: str) -> list[str]:
     """Every <loc> in the document, namespace-tolerant. Never raises."""
     try:
-        root = ET.fromstring(xml)
-    except ET.ParseError:
+        root = safe_fromstring(xml)
+    except (ET.ParseError, UnsafeXML) as e:
+        logger.warning("sitemap refused/unparseable: %s", e)
         return []
     ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
     urls = [loc.text for loc in root.findall(".//sm:loc", ns) if loc.text]

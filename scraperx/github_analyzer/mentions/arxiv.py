@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 
+from scraperx._safe_xml import safe_fromstring
 from scraperx.github_analyzer.mentions._http import (
     cache_or_fetch,
     http_get_text,
@@ -34,7 +35,10 @@ def search(owner: str, repo: str, db=None) -> list[ExternalMention]:
         }
         try:
             xml_text = http_get_text(API_URL, params=params)
-            root = ET.fromstring(xml_text)
+            # Remote XML -> entity-declaration + size guard. arXiv is a good
+            # citizen, but "the response came from a host we trust" is not the
+            # same as "the bytes on the wire are safe to expand".
+            root = safe_fromstring(xml_text)
         except Exception as e:
             logger.warning("Error fetching from %s: %s", SOURCE, e)
             return []
