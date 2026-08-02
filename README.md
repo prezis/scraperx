@@ -5,17 +5,18 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/prezis/scraperx/actions/workflows/ci.yml/badge.svg)](https://github.com/prezis/scraperx/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.10.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.11.0-informational.svg)](CHANGELOG.md)
 
 ScraperX fetches social-media posts, transcribes videos, and verifies authenticity — without API keys or account credentials. Built on stdlib, with optional extras for perceptual image hashing, web scraping helpers, and GPU-accelerated speech-to-text.
 
-> **Status: beta.** Core functionality is stable — **879 tests, fully offline** (as of 1.9.0 the
+> **Status: beta.** Core functionality is stable — **923 tests, fully offline** (as of 1.9.0 the
 > suite no longer talks to the internet; it used to, silently, and that had been failing CI since
-> 2026-07-17). Newest in **1.10.0**: **`stealth_session()` — N URLs on ONE browser**, so a batch
-> pays browser start once instead of per URL. 1.9.0 made the *cookie* persist
-> (`stealth_profile=`); this makes the *browser* persist. 1.8.0 brought the Cloudflare-bypass leg
-> (`scrapling_stealth`), no-login Reddit, frame-OCR for silent video, a documentation crawler, 403
-> fingerprint self-audit, and a self-learning method ledger. See the [CHANGELOG](CHANGELOG.md).
+> 2026-07-17). Newest in **1.11.0**: **the cascade LEARNS which leg works, per host** — on a
+> walled site it stops re-trying the three legs that always 403 and goes straight to the one that
+> works. 1.10.0 added `stealth_session()` (N URLs on ONE browser, ~50% faster, measured); 1.9.0
+> made the *cookie* persist. 1.8.0 brought the Cloudflare-bypass leg, no-login Reddit, frame-OCR
+> for silent video, a documentation crawler, and the 403 fingerprint self-audit. See the
+> [CHANGELOG](CHANGELOG.md).
 
 ---
 

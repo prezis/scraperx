@@ -45,9 +45,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
+
+from scraperx.method_telemetry import preferred_order as _preferred_order
+from scraperx.method_telemetry import record as _telemetry_record
 
 logger = logging.getLogger(__name__)
 
@@ -372,7 +375,8 @@ def _fetch_scrapling_stealth(
 def smart_fetch(
     url: str,
     *,
-    prefer: FetchMode = "jina",
+    prefer: FetchMode | None = None,
+    adaptive: bool = True,
     timeout: int = DEFAULT_TIMEOUT,
     ttl: int = DEFAULT_TTL,
     no_cache: bool = False,
@@ -437,7 +441,7 @@ def smart_fetch(
           error (e.g. unknown ``prefer`` value).
         - Cache key is sha256(url); callers don't need to normalize.
     """
-    if prefer not in _CASCADE_DEFAULT:
+    if prefer is not None and prefer not in _CASCADE_DEFAULT:
         raise ValueError(
             f"prefer must be one of {_CASCADE_DEFAULT}, got {prefer!r}"
         )
@@ -456,11 +460,53 @@ def smart_fetch(
             return cached
 
     # Build cascade order: preferred first, then the rest in default order.
-    if strict:
-        cascade: tuple[FetchMode, ...] = (prefer,)
+    # ── cascade ordering ─────────────────────────────────────────────────────
+    # The order used to be a frozen constant, while a self-learning ledger sat
+    # in the tree wired only into reddit.py. So on a walled host we would try
+    # jina (403), urllib (403), playwright (403), stealth (200) — in that exact
+    # order, forever, three wasted attempts per URL for the life of the project.
+    #
+    # Ranking is PER HOST: jina may be perfect for one site and useless for the
+    # next, and a global average would hide both facts.
+    #
+    # An EXPLICIT `prefer` is an instruction, not a suggestion — telemetry may
+    # reorder the FALLBACKS behind it but never demotes the leg the caller named.
+    # `prefer=None` (the default) means the caller expressed no preference, so
+    # the ledger picks. With no ledger, or fewer than MIN_SAMPLES events,
+    # preferred_order returns the default order unchanged — identical behaviour
+    # to before, by construction.
+    domain = urlparse(url).netloc or None
+
+    def _rank(methods: Sequence[FetchMode]) -> list[FetchMode]:
+        """Rank by ledger. Fail-open LOCALLY — instrumentation may never break a fetch.
+
+        method_telemetry is already fail-open internally, but relying on another
+        module's internals for a safety guarantee is exactly how a guarantee
+        silently disappears. Cheap to own it here.
+        """
+        if not adaptive:
+            return list(methods)
+        try:
+            return _preferred_order("smart_fetch", list(methods), target_domain=domain)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("cascade ranking unavailable, using default order: %s", e)
+            return list(methods)
+
+    def _note(mode: str, success: bool, latency_ms: int, status: int | None = None) -> None:
+        try:
+            _telemetry_record("smart_fetch", mode, domain or "", success,
+                              latency_ms=latency_ms, http_status=status)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("telemetry record failed for %s: %s", mode, e)
+
+    if prefer is None:
+        ordered = _rank(_CASCADE_DEFAULT)
+        prefer = ordered[0]
+        rest = tuple(ordered[1:])
     else:
-        rest = tuple(m for m in _CASCADE_DEFAULT if m != prefer)
-        cascade = (prefer,) + rest
+        rest = tuple(_rank([m for m in _CASCADE_DEFAULT if m != prefer]))
+
+    cascade: tuple[FetchMode, ...] = (prefer,) if strict else (prefer,) + rest
 
     result = FetchResult(url=url)
 
@@ -494,7 +540,12 @@ def smart_fetch(
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             if not content or not content.strip():
                 result.errors.append((mode, "empty body"))
+                # An empty body is a FAILURE for ranking purposes: the leg
+                # answered but gave us nothing usable, which is exactly the
+                # outcome we want demoted next time.
+                _note(mode, False, elapsed_ms, status)
                 continue
+            _note(mode, True, elapsed_ms, status)
             result.content = content
             result.mode_used = mode
             result.elapsed_ms = elapsed_ms
@@ -504,6 +555,7 @@ def smart_fetch(
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             err = f"{type(e).__name__}: {e}"
             result.errors.append((mode, err))
+            _note(mode, False, elapsed_ms)
             logger.debug("smart_fetch %s leg failed in %dms: %s", mode, elapsed_ms, err)
             continue
 

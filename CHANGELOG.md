@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] — 2026-08-02
+
+### Changed — the cascade LEARNS which leg works, per host
+
+`smart_fetch` walked a frozen constant: jina → urllib → playwright → stealth. On a
+walled host that is 403, 403, 403, 200 — in that exact order, every time, forever.
+**Three wasted attempts per URL for the life of the project**, while a self-learning
+ledger (`method_telemetry`, shipped 1.8.0) sat in the tree wired into `reddit.py`
+and nothing else.
+
+Now every attempt is recorded and the order is ranked from that history:
+
+```python
+smart_fetch(url)                      # ledger picks the order
+smart_fetch(url, prefer="jina")       # jina first; ledger orders the FALLBACKS
+smart_fetch(url, adaptive=False)      # frozen order, as before
+```
+
+- **Ranking is PER HOST.** jina may be perfect for one site and useless for the next;
+  a global average would hide both facts and be wrong for both.
+- **An explicit `prefer` is an instruction, not a suggestion.** Telemetry reorders
+  what comes *behind* it and never demotes the leg the caller named. `prefer` now
+  defaults to `None` ("no preference — you decide"), which is what lets the two
+  cases be told apart at all.
+- **An empty ledger changes nothing.** Below `MIN_SAMPLES` (5) events the scorer
+  returns a neutral prior and the default order stands, so behaviour is identical
+  until there is real evidence. One lucky win is noise.
+- **An empty body counts as a failure.** A leg that answers with nothing is exactly
+  the outcome that should be demoted next time.
+- **Fail-open LOCALLY.** `method_telemetry` is already fail-open internally, but
+  relying on another module's internals for a safety guarantee is how a guarantee
+  silently disappears — proven twice today. Both the ranking read and the recording
+  write are wrapped here; a broken ledger cannot break a fetch.
+
+### Tests
+
+10 new tests in `tests/test_fetch_adaptive.py`, and they exist because **the full
+suite passed without them**: with an empty ledger nothing new is exercised, so every
+pre-existing test proved only the old behaviour. Each new test seeds the ledger
+first, so the promotion is actually observed — including per-host scoping,
+explicit-prefer precedence, the MIN_SAMPLES floor, and a fetch that still succeeds
+when both telemetry calls raise.
+
+Ledger isolation was inherited free: `tests/conftest.py` already redirected
+`SCRAPERX_METHOD_TELEMETRY_PATH` to `tmp_path` when reddit.py got telemetry.
+Verified after the run — the real ledger is untouched (51 lines, all `reddit`).
+
+923 passing, random order.
+
 ## [1.10.0] — 2026-08-02
 
 ### Added — N URLs on ONE browser
