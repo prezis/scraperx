@@ -5,17 +5,17 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/prezis/scraperx/actions/workflows/ci.yml/badge.svg)](https://github.com/prezis/scraperx/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.9.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.10.0-informational.svg)](CHANGELOG.md)
 
 ScraperX fetches social-media posts, transcribes videos, and verifies authenticity — without API keys or account credentials. Built on stdlib, with optional extras for perceptual image hashing, web scraping helpers, and GPU-accelerated speech-to-text.
 
-> **Status: beta.** Core functionality is stable — **858 tests, fully offline** (as of 1.9.0 the
+> **Status: beta.** Core functionality is stable — **879 tests, fully offline** (as of 1.9.0 the
 > suite no longer talks to the internet; it used to, silently, and that had been failing CI since
-> 2026-07-17). Newest in **1.9.0**: **persistent cookie-carrying stealth sessions** via
-> `smart_fetch(stealth_profile=...)` — Cloudflare clearance and logins now survive across calls
-> and process restarts. 1.8.0 brought the Cloudflare-bypass leg (`scrapling_stealth`), no-login
-> Reddit, frame-OCR for silent video, a documentation crawler, 403 fingerprint self-audit, and a
-> self-learning method ledger. See the [CHANGELOG](CHANGELOG.md).
+> 2026-07-17). Newest in **1.10.0**: **`stealth_session()` — N URLs on ONE browser**, so a batch
+> pays browser start once instead of per URL. 1.9.0 made the *cookie* persist
+> (`stealth_profile=`); this makes the *browser* persist. 1.8.0 brought the Cloudflare-bypass leg
+> (`scrapling_stealth`), no-login Reddit, frame-OCR for silent video, a documentation crawler, 403
+> fingerprint self-audit, and a self-learning method ledger. See the [CHANGELOG](CHANGELOG.md).
 
 ---
 
@@ -878,6 +878,52 @@ different, non-persistent branch when a rotator is set. Pick one.
 It does not beat behavioural detection or an account ban — for that,
 `fingerprint_audit.diagnose_403()` returns `behavior-or-account`, and that verdict is
 **terminal**: a fresh token or fingerprint will not help.
+
+### N URLs on ONE browser (1.10.0+)
+
+`stealth_profile=` makes the *cookie* persist. It does not stop each call building and
+tearing down a whole Chromium. For a batch, hold the session open:
+
+```python
+from scraperx import stealth_session, fetch_stealth_session
+
+# You drive the loop — early exit, tier ladders, interleaved logic:
+with stealth_session(profile="~/.cache/scraperx/profiles/example.com") as s:
+    for url in urls:
+        content, status = s.fetch(url)
+
+# Or you just have a list:
+for r in fetch_stealth_session(urls, profile="~/.cache/scraperx/profiles/example.com"):
+    if r.ok:
+        save(r.url, r.content)
+    else:
+        log.warning("%s -> %s (%s)", r.url, r.error, r.error_kind)
+```
+
+`StealthPageResult` carries `url / index / content / http_status / error / error_kind /
+elapsed_ms`, with `.ok` using the same empty-body-only test as the cascade.
+
+**Failure semantics**, because a batch fails differently from a single fetch:
+
+| what happened | what you get |
+|---|---|
+| site/transport failure on URL 7 of 20 | that result gets `error_kind="fetch"`; URL 8 continues on the same warm session |
+| **a code defect** (`TypeError` etc.) | **re-raises and aborts** — a wall never aborts, so you can always tell them apart |
+| `max_total_seconds` exceeded | remaining URLs yielded as `error_kind="skipped"`, never silently dropped |
+| browser page pool wedges | session restarts itself once per URL, bounded at 2 per batch |
+
+⚠ **If you `break` out of `fetch_stealth_session`, close the generator** —
+`contextlib.closing(...)` or `gen.close()` — or use `stealth_session()` directly.
+CPython refcounting usually finalises it for you, but a leaked generator is a leaked
+headless browser.
+
+⚠ **`max_pages` > 1 raises `ValueError` on purpose.** It is a lying knob upstream:
+`StealthySession(max_pages=5).max_pages` is `1` while its config says `5`. Fetches are
+serial regardless — `fetch()` blocks. Rejected loudly rather than accepted and ignored.
+
+⚠ **The speed-up is unmeasured.** The 30-90 s figure is our own docstring, not a
+measurement, and `stealth_profile` already recovered the clearance half — only browser
+start remains recoverable. Log `handle.stats` on your first real batch.
 
 ## Documentation crawling + fingerprint self-audit
 

@@ -5,6 +5,101 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] — 2026-08-02
+
+### Added — N URLs on ONE browser
+
+1.9.0 made the *cookie* survive across calls. It did nothing about *browser start*:
+every stealth fetch still built and tore down a whole Chromium. This closes that.
+
+- **`stealth_session(...)`** — context manager, the primary surface. Hand it a profile,
+  drive your own loop:
+
+  ```python
+  with stealth_session(profile="~/.cache/scraperx/profiles/example.com") as s:
+      for url in urls:
+          content, status = s.fetch(url)
+  ```
+  It is the primary surface (not the list form) because the two heaviest real
+  consumers — `reddit.py`'s tier ladder and cex-gate's classify loop — interleave
+  their own logic between fetches and cannot be inverted into "hand me a URL list".
+
+- **`fetch_stealth_session(urls, ...)`** — convenience generator over the above,
+  yielding a `StealthPageResult` per URL. For when you genuinely just have a list.
+- **`StealthPageResult`** — `url / index / content / http_status / error / error_kind /
+  elapsed_ms`, with `.ok` mirroring the cascade's empty-body-only test. It does NOT
+  interpret `http_status`, exactly as `smart_fetch` does not.
+- **`StealthSessionHandle`** — `.fetch()`, `.fetch_xhr()`, `.stats` (fetches / failures /
+  restarts). Log the stats: nobody has yet measured a long-lived session.
+
+**This is ADOPT, not BUILD.** `StealthyFetcher.fetch(url, **kwargs)` is literally
+`with StealthySession(**kwargs) as engine: return engine.fetch(url)` — verified by
+reading the installed 0.4.12. Hoisting that `with` out of per-call scope *is* the
+whole feature.
+
+**The rule that shapes the implementation, and it is not stylistic:** everything is
+passed at CONSTRUCTION and `session.fetch(url)` is called with NO kwargs. Upstream's
+per-fetch validator iterates only its own known field names, so any other key is never
+read and never raises — `session.fetch(url, **flat_dict)` would SILENTLY DROP
+`user_data_dir`, `headless` and `capture_xhr`, and the batch would run cookie-less
+while every result looked healthy. That is the 1.9.0 regression re-introduced one layer
+up. `test_fetch_receives_url_only_and_no_kwargs` pins it, and was verified to fail
+against a deliberately naive implementation.
+
+### Failure semantics (the reason a batch API needs its own design)
+
+- A site/transport failure on URL 7 of 20 does **not** abort. It is yielded with a
+  type-prefixed message and `error_kind="fetch"`; URL 8 continues on the same warm
+  session, because a raising fetch does not poison it — the page is reclaimed and the
+  context (with its clearance) survives.
+- A **code defect** (`TypeError`/`ValueError`/…) **re-raises and aborts.** Three
+  independent signals keep it distinguishable from a wall: it aborts (a wall never
+  does), it is a traceback rather than a string in a field, and `error_kind` is a
+  machine-readable enum. This is the class-5 POISONED-EVIDENCE rule applied at design
+  time — the failure it kills is arity drift reported as 20 identical "blocks".
+- `max_total_seconds` is a **between-URL** gate; the remainder is yielded as
+  `error_kind="skipped"`, never silently dropped. It cannot interrupt a wedged
+  in-flight fetch (sync Playwright blocks and is not interruptible).
+- **Pool-wedge self-heal:** a `RuntimeError: Maximum page limit` closes and restarts the
+  same session object and retries that URL once, bounded at 2 restarts per batch.
+
+### Changed
+
+- **`_build_stealth_kwargs()` is now the single place the Scrapling kwarg dict is
+  built.** `fetch_stealth`, `fetch_stealth_xhr` and `stealth_session` all route through
+  it, so the timeout floor and curated defaults cannot drift. The dict had been written
+  out twice; that is how a divergence hides for months. Body decoding likewise
+  collapsed into `_decode_body()`. Behaviour-preserving — the existing 24 tests, which
+  assert the exact kwargs both functions pass, stayed green through the refactor.
+- The session path injects `selector_config` with `huge_tree=True`. Verified asymmetry:
+  `StealthyFetcher.fetch` injects it before constructing its session, a hand-built
+  `StealthySession` gets `{}`. Our proven DexScreener case is a 1.4 MB page — exactly
+  where lxml's huge_tree matters.
+- `retries` defaults to **1**, not upstream's 3: three retries burn three full
+  navigation timeouts plus two sleeps on every dead URL, turning the amortization win
+  into a loss on any list with dead links.
+
+### Rejected on purpose
+
+- **`max_pages` > 1 now raises `ValueError`.** Verified lying knob:
+  `StealthySession(max_pages=5).max_pages` is `1` while `_config` says `5`, because
+  `__init__` calls a bare `super().__init__()`. Fetches are serial regardless —
+  `fetch()` blocks. Rejected loudly rather than accepted and ignored.
+  `test_upstream_sync_max_pages_still_ignored` is a canary that goes red the day
+  upstream fixes it.
+- No async surface, no per-URL `xhr_pattern` (session-scoped upstream), no per-URL
+  `proxy` (crashes on persistent sessions), no cache integration, no cascade
+  integration. Each is a verified impossibility or crash, not a preference.
+
+### Not verified (needs a real browser)
+
+The wall-clock saving is **unmeasured** — the 30-90 s figure is our own docstring, not a
+measurement, and 1.9.0 already recovered the clearance half, so only browser start
+remains recoverable. Also unverified: whether Cloudflare re-challenges by session age
+inside a long-lived session; whether two sessions on one profile dir collide on the
+Chromium lock; and the pool-wedge trigger itself (the control flow is read, the trigger
+was never forced). 21 new offline tests, 879 passing overall.
+
 ## [1.9.0] — 2026-08-02
 
 ### Added

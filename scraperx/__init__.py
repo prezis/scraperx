@@ -42,7 +42,11 @@ from .fetch import FetchResult, smart_fetch
 from .scrapling_stealth import (
     DEFAULT_STEALTH_TIMEOUT,
     ScraplingNotAvailable,
+    StealthPageResult,
+    StealthSessionHandle,
     fetch_stealth,
+    fetch_stealth_session,
+    stealth_session,
 )
 from .fingerprint_audit import (
     CurlCffiNotAvailable,
@@ -101,7 +105,7 @@ from .social_db import SocialDB
 from .thread import Thread, get_thread
 from .token_extractor import TokenMention, extract_token_mentions
 
-__version__ = "1.9.0"
+__version__ = "1.10.0"
 
 __all__ = [
     "AvatarMatcher",
@@ -170,6 +174,10 @@ __all__ = [
     "extract_token_mentions",
     "fetch_any_video_transcript",
     "fetch_stealth",
+    "fetch_stealth_session",
+    "stealth_session",
+    "StealthPageResult",
+    "StealthSessionHandle",
     "get_profile",
     "get_reddit_thread",
     "get_subreddit_posts",
