@@ -224,16 +224,45 @@ def test_title_from_html_missing():
 
 @pytest.mark.parametrize("url,title,expected_label,expected_guess,expected_chain", FIXTURES)
 def test_extract_label_static_explorers(monkeypatch, url, title, expected_label, expected_guess, expected_chain):
-    """Patch both fetchers so the test never touches the network."""
+    """Patch EVERY fetcher `extract_label` can reach, so this never hits the network.
+
+    2026-08-02 — this test was silently hitting the live internet.
+    `extract_label` was changed to call `_fetch_static_title_and_html()` (a
+    tuple-returning successor), but the patch list here still named only the
+    older `_fetch_static_title`. The patch missed, the real `urlopen` ran, and
+    Cloudflare answered `HTTP 403` for etherscan/bscscan — while basescan let it
+    through and returned the LIVE title ("Wrapped Ether | Address: 0x4200…")
+    instead of the fixture, which is why one of the four failed differently.
+    CI had been red on this since 2026-07-17.
+
+    Same defect class as the ca-gate `fetch_stealth_xhr` drift found the same
+    day: a function gained a successor, the caller moved to it, and a patch
+    target was left pointing at the corpse. If you add another `_fetch_*`
+    entry point to `explorer_label`, add it here in the SAME commit.
+    """
 
     def fake_static(u, timeout):
         return title
+
+    def fake_static_and_html(u, timeout):
+        return title, f"<html><head><title>{title}</title></head><body></body></html>"
 
     def fake_dynamic(u, timeout):
         return title
 
     monkeypatch.setattr(el_mod, "_fetch_static_title", fake_static)
+    monkeypatch.setattr(el_mod, "_fetch_static_title_and_html", fake_static_and_html)
     monkeypatch.setattr(el_mod, "_fetch_dynamic_title", fake_dynamic)
+
+    # Belt-and-braces: if a NEW fetcher slips past the patches above, fail loudly
+    # here instead of quietly reaching the internet and blaming Cloudflare.
+    def _no_network(*_a, **_kw):
+        raise AssertionError(
+            "explorer_label reached urlopen() — an unpatched fetcher exists. "
+            "Add it to the monkeypatch list above; do not let this test go live."
+        )
+
+    monkeypatch.setattr(el_mod, "urlopen", _no_network, raising=False)
 
     res = extract_label(url, timeout=5)
     assert isinstance(res, LabelResult)

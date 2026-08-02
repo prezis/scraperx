@@ -13,6 +13,7 @@ returns a tuple instead of a list, or synthesize expects a different shape).
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from scraperx.github_analyzer.core import GithubAnalyzer
@@ -20,6 +21,27 @@ from scraperx.github_analyzer.schemas import ExternalMention
 
 # ---------------------------------------------------------------------------
 # Fake payloads — realistic shape, minimal content
+#
+# DATES ARE RELATIVE TO NOW, DELIBERATELY (fixed 2026-08-02).
+#
+# These fixtures used to hardcode absolute dates: pushed_at "2026-04-10" and a
+# commit date "2026-04-01T00:00:00Z" whose inline comment read "# Inside last
+# 90 days". That comment was true the day it was written and quietly became
+# false ~2026-06-30. `momentum_score()` counts commits inside a 90-day window,
+# so the window slid past the fixture, `commits_90d` emptied, momentum fell to
+# 0, and `assert report.trust.momentum > 0` began failing — turning CI red from
+# 2026-07-17 onward for a reason that had nothing to do with any code change.
+#
+# A test asserting "a HEALTHY repo scores well" must describe a repo that is
+# healthy *whenever the test runs*. Anchoring it to a wall-clock date makes it
+# a time bomb that blames the next innocent commit.
+
+
+def _iso_days_ago(days: int) -> str:
+    """UTC ISO-8601 Z timestamp `days` in the past — always relative to now."""
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
 
 
 FAKE_REPO = {
@@ -34,8 +56,8 @@ FAKE_REPO = {
     "license": {"key": "unlicense", "name": "The Unlicense"},
     "archived": False,
     "has_issues": True,
-    "pushed_at": "2026-04-10T00:00:00Z",
-    "created_at": "2021-01-01T00:00:00Z",
+    "pushed_at": _iso_days_ago(10),
+    "created_at": _iso_days_ago(365 * 5),
     "default_branch": "master",
 }
 
@@ -51,7 +73,9 @@ FAKE_COMMITS = [
         "commit": {
             "author": {
                 "name": "alice",
-                "date": "2026-04-01T00:00:00Z",  # Inside last 90 days
+                # 20 days ago — comfortably inside the 90-day momentum window,
+                # and it STAYS inside it however long from now the test runs.
+                "date": _iso_days_ago(20),
             }
         },
     }
@@ -67,7 +91,7 @@ FAKE_FORKS = [
     {
         "full_name": "fork-owner/yt-dlp",
         "stargazers_count": 50,
-        "pushed_at": "2026-03-15T00:00:00Z",
+        "pushed_at": _iso_days_ago(45),
         "html_url": "https://github.com/fork-owner/yt-dlp",
     }
 ]
