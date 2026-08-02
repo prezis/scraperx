@@ -91,14 +91,42 @@ against a deliberately naive implementation.
   `proxy` (crashes on persistent sessions), no cache integration, no cascade
   integration. Each is a verified impossibility or crash, not a preference.
 
-### Not verified (needs a real browser)
+### ⚠ Upgrading scrapling REQUIRES re-installing the browser
 
-The wall-clock saving is **unmeasured** — the 30-90 s figure is our own docstring, not a
-measurement, and 1.9.0 already recovered the clearance half, so only browser start
-remains recoverable. Also unverified: whether Cloudflare re-challenges by session age
-inside a long-lived session; whether two sessions on one profile dir collide on the
-Chromium lock; and the pool-wedge trigger itself (the control flow is read, the trigger
-was never forced). 21 new offline tests, 879 passing overall.
+Bumping 0.4.7 → 0.4.12 raised the pinned Chromium to **1228**; this box had 1208/1217, so
+**every stealth call died** — including the already-shipped `fetch_stealth`, not just the
+new session surface:
+
+```
+Error: BrowserType.launch_persistent_context: Executable doesn't exist at
+  ~/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome
+```
+
+Fix: `python3 -m patchright install chromium` (no root; ~114 MB into `~/.cache`).
+
+**This is the lesson, not the footnote:** 891 offline tests were green while the feature
+was completely dead. A mocked suite cannot see a missing binary. One live run caught it
+in seconds. After any `scrapling` upgrade, run the browser install AND one live fetch.
+
+### Measured (2026-08-02, live, `example.com` ×3 per arm)
+
+The wall-clock claim is no longer a guess:
+
+| | one-shot ×3 | ONE session ×3 |
+|---|---|---|
+| total | **2.6 s** | **1.3 s** |
+| browser start | paid 3× | 0.3 s, once |
+| per fetch | 957 / 799 / 818 ms | 408 / 246 / **233 ms** |
+
+**Session wins ~50%**, and the marginal fetch is ~3.5× cheaper. Deliberately measured on
+an UNWALLED site so the number isolates browser-start amortization — which is exactly the
+half that remained after 1.9.0 recovered clearance persistence. The win grows with N.
+
+### Still not verified
+
+Whether Cloudflare re-challenges by session age inside a long-lived session; whether two
+sessions on one profile dir collide on the Chromium lock; and the pool-wedge trigger
+itself (control flow read, trigger never forced). 21 new offline tests, 891 passing.
 
 ## [1.9.0] — 2026-08-02
 

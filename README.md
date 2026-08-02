@@ -921,9 +921,27 @@ headless browser.
 `StealthySession(max_pages=5).max_pages` is `1` while its config says `5`. Fetches are
 serial regardless — `fetch()` blocks. Rejected loudly rather than accepted and ignored.
 
-⚠ **The speed-up is unmeasured.** The 30-90 s figure is our own docstring, not a
-measurement, and `stealth_profile` already recovered the clearance half — only browser
-start remains recoverable. Log `handle.stats` on your first real batch.
+**Measured** (2026-08-02, live, `example.com` ×3 per arm — unwalled on purpose, so the
+number isolates browser-start amortization):
+
+| | one-shot ×3 | ONE session ×3 |
+|---|---|---|
+| total | 2.6 s | **1.3 s** |
+| browser start | paid 3× | 0.3 s, once |
+| per fetch | 957 / 799 / 818 ms | 408 / 246 / **233 ms** |
+
+Session wins ~50%; the marginal fetch is ~3.5× cheaper, and the win grows with N.
+
+⚠ **After upgrading `scrapling`, re-install the browser** — the pin moves:
+
+```bash
+python3 -m patchright install chromium    # no root, ~114 MB into ~/.cache
+```
+
+Skipping it kills EVERY stealth call (`Executable doesn't exist at
+…/chromium-<N>/chrome-linux64/chrome`) — including `fetch_stealth`, not just sessions.
+A mocked test suite cannot see a missing binary: 891 offline tests were green here while
+the feature was completely dead. Always follow an upgrade with one live fetch.
 
 ## Documentation crawling + fingerprint self-audit
 
