@@ -104,6 +104,7 @@ from .search import search_tweets
 from .social_db import SocialDB
 from .thread import Thread, get_thread
 from .token_extractor import TokenMention, extract_token_mentions
+from .xquik_backend import XquikBackend
 
 __version__ = "1.11.0"
 
@@ -158,6 +159,7 @@ __all__ = [
     "WaybackError",
     "XProfile",
     "XScraper",
+    "XquikBackend",
     "analyze_github_repo",
     "build_search_url",
     "check_thread_authenticity",
