@@ -17,6 +17,7 @@ from scraperx.wayback import (
     MultiGenerationResult,
     WaybackError,
     _build_cdx_url,
+    _normalise_cdx_ts,
     _parse_cdx_response,
     _year_to_ts,
     wayback_multi_generation_probe,
@@ -69,6 +70,142 @@ def test_build_cdx_url_with_year_uses_yyyymmdd_not_bare_year():
 def test_build_cdx_url_rejects_bad_match_type():
     with pytest.raises(ValueError):
         _build_cdx_url("x.com/", from_year=None, to_year=None, limit=1, match_type="kebab")
+
+
+# ---------------------------------------------------------------------------
+# _normalise_cdx_ts — sub-year precision date bounds
+# ---------------------------------------------------------------------------
+
+
+def test_normalise_cdx_ts_none_passes_through():
+    assert _normalise_cdx_ts(None, end=False) is None
+    assert _normalise_cdx_ts(None, end=True) is None
+
+
+def test_normalise_cdx_ts_year_start():
+    assert _normalise_cdx_ts("2018", end=False) == "20180101000000"
+
+
+def test_normalise_cdx_ts_year_end():
+    assert _normalise_cdx_ts("2018", end=True) == "20181231235959"
+
+
+def test_normalise_cdx_ts_month_start():
+    assert _normalise_cdx_ts("201803", end=False) == "20180301000000"
+
+
+def test_normalise_cdx_ts_month_end():
+    assert _normalise_cdx_ts("201803", end=True) == "20180331235959"
+
+
+def test_normalise_cdx_ts_day_start():
+    assert _normalise_cdx_ts("20180315", end=False) == "20180315000000"
+
+
+def test_normalise_cdx_ts_day_end():
+    assert _normalise_cdx_ts("20180315", end=True) == "20180315235959"
+
+
+def test_normalise_cdx_ts_full_form_passes_through():
+    assert _normalise_cdx_ts("20180315120000", end=False) == "20180315120000"
+    assert _normalise_cdx_ts("20180315120000", end=True) == "20180315120000"
+
+
+def test_normalise_cdx_ts_minute_precision():
+    assert _normalise_cdx_ts("201803151200", end=False) == "201803151200" + "00"
+    assert _normalise_cdx_ts("201803151200", end=True) == "201803151200" + "59"
+
+
+def test_normalise_cdx_ts_rejects_non_digit():
+    with pytest.raises(ValueError, match="all digits"):
+        _normalise_cdx_ts("2018-03-15", end=False)
+
+
+def test_normalise_cdx_ts_rejects_odd_length():
+    with pytest.raises(ValueError, match="4/6/8/10/12/14"):
+        _normalise_cdx_ts("201", end=False)
+    with pytest.raises(ValueError, match="4/6/8/10/12/14"):
+        _normalise_cdx_ts("2018031", end=True)
+
+
+def test_normalise_cdx_ts_rejects_non_string():
+    with pytest.raises(TypeError):
+        _normalise_cdx_ts(20180315, end=False)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# _build_cdx_url — from_ts / to_ts (sub-year-precision date bounds)
+# ---------------------------------------------------------------------------
+
+
+def test_build_cdx_url_with_from_ts_day_precision():
+    url = _build_cdx_url(
+        "ici.org/info/",
+        from_year=None, to_year=None,
+        from_ts="20180315", to_ts="20180330",
+        limit=10, match_type="prefix",
+    )
+    assert "from=20180315000000" in url
+    assert "to=20180330235959" in url
+
+
+def test_build_cdx_url_with_from_ts_full_form():
+    url = _build_cdx_url(
+        "ici.org/info/",
+        from_year=None, to_year=None,
+        from_ts="20180315120000", to_ts="20180315180000",
+        limit=10, match_type="prefix",
+    )
+    assert "from=20180315120000" in url
+    assert "to=20180315180000" in url
+
+
+def test_build_cdx_url_ts_overrides_year_when_both_set():
+    """When both from_year and from_ts are set, the more-precise from_ts wins."""
+    url = _build_cdx_url(
+        "ici.org/info/",
+        from_year=2017, to_year=2017,            # would yield 2017... bounds
+        from_ts="20180315", to_ts="20180330",   # but these override
+        limit=10, match_type="prefix",
+    )
+    assert "from=20180315000000" in url
+    assert "to=20180330235959" in url
+    # Confirm the year-derived bounds are NOT also in the URL
+    assert "from=20170101000000" not in url
+    assert "to=20171231235959" not in url
+
+
+def test_build_cdx_url_ts_only_one_side_set():
+    """Setting from_ts without to_ts should still emit only the from clause."""
+    url = _build_cdx_url(
+        "ici.org/info/",
+        from_year=None, to_year=None,
+        from_ts="20180315", to_ts=None,
+        limit=10, match_type="prefix",
+    )
+    assert "from=20180315000000" in url
+    assert "to=" not in url
+
+
+def test_build_cdx_url_ts_one_side_year_other():
+    """from_ts (precise) + to_year (year) — both should appear, each via its own path."""
+    url = _build_cdx_url(
+        "ici.org/info/",
+        from_year=None, to_year=2018,
+        from_ts="20180315", to_ts=None,
+        limit=10, match_type="prefix",
+    )
+    assert "from=20180315000000" in url
+    assert "to=20181231235959" in url
+
+
+def test_build_cdx_url_rejects_malformed_from_ts():
+    with pytest.raises(ValueError):
+        _build_cdx_url(
+            "x.com/", from_year=None, to_year=None,
+            from_ts="not-a-date", to_ts=None,
+            limit=1, match_type="prefix",
+        )
 
 
 # ---------------------------------------------------------------------------
