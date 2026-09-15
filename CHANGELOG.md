@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.1] — 2026-09-15
+
+### Fixed — both browser legs were unreachable from every async caller
+
+`smart_fetch`'s `playwright` and `scrapling_stealth` legs drive Playwright's **sync**
+API. Playwright refuses that API on a thread that owns a running asyncio loop and
+raises immediately, so a caller shaped `async def f(): smart_fetch(url)` lost BOTH
+bot-bypass legs — deterministically, in under 60 ms. Not a wall: a structural
+impossibility that no retry, ranking, profile or stealth option could fix.
+
+**Measured, not theorised.** Same URL, same leg:
+
+| arm | result |
+|---|---|
+| sync context (control) | ok=True, playwright, 0.57 s |
+| inside `asyncio.run` | FAIL in 0.00 s |
+| inside `asyncio.run`, stealth | FAIL in 0.08 s |
+
+And in production, from `~/.scraperx/method-telemetry.jsonl` — 9 205 attempts against
+`dexscreener.com`: **playwright 0/2292, scrapling_stealth 0/2292**, jina 0/2318,
+urllib 36/2332. Every browser attempt came from ca-gate's
+`upstream/dexscreener.py::_scraperx_fallback`, an `async def` calling `smart_fetch`
+directly. The 14–54 ms failure latencies in that ledger are the fingerprint: far too
+fast to be a network wall. The 1.11.0 adaptive cascade was faithfully ranking four
+legs that could not win — the ledger was right and useless at the same time.
+
+`_call_leg()` now runs the two Playwright-backed legs in a worker thread when the
+calling thread owns a loop. A worker thread owns no loop, so the sync API is legal
+there.
+
+- **No loop → called inline, exactly as before.** A sync caller pays nothing for a
+  thread it does not need.
+- **Only the Playwright-backed legs are offloaded.** `jina` and `urllib` are stdlib
+  HTTP and loop-safe; moving them too would silently change the threading model for
+  every caller.
+- **Exceptions propagate unchanged.** A WALL must stay distinguishable from a broken
+  call shape, or the ledger learns the wrong lesson.
+- **The consumer needs no change.** The wire is inside the library, so every existing
+  async caller is fixed by upgrading.
+
+Live verification after the fix (same arm that failed, real browsers): playwright
+`ok=True 200` in 0.41 s, scrapling_stealth `ok=True 200` in 3.27 s, and
+`dexscreener.com` `ok=True 200`, 1.94 MB, no challenge page.
+
+8 new contract tests lock **where** a leg executes, not what it returns.
+
+### Note — the documented DexScreener parse recipe is stale (not a code change)
+
+With the fetch working again, the regex published for extracting token CAs returns
+**0** on a 200 that carries 812 addresses. DexScreener's embedded payload gained a
+`$typeName` field and now orders `address` before `symbol`, so a pattern anchored on
+field ORDER cannot match. Anchor on the object and read fields BY KEY instead —
+measured on the same bytes: old 0, new 100 rows / 80 unique tokens. See
+`~/ai/global-graph/tools/scraperx.md` §2026-09-15 for the working recipe.
+
 ## [1.11.0] — 2026-08-02
 
 ### Changed — the cascade LEARNS which leg works, per host
