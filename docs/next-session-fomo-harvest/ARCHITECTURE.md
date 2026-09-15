@@ -104,13 +104,33 @@ gets `{}` and never harvests.
 | dedup `/trades` by `trade.id`, distrust `hasNextPage` | done server-side in the existing Python (`refetch_solana_positions.py:125-144`); the tab sends raw pages, the server dedups |
 | friends unaffected | the extension edit is to unpacked dev source; there is NO auto-update channel — each person loaded it by hand, so editing the file changes nobody's install until they reload. The harvest loop is additionally DID-gated. |
 
-## 5. Pacing math (from the answers)
+## 5. Pacing — HUMAN-SHAPED, not a metronome (operator, 2026-09-15)
 
-- 4/min ⇒ `pace_ms ≥ 15 000`. Two endpoints/user ⇒ ~30 s/user ⇒ ~120 users/hour.
-- Cohort 710 ≈ **6 h**; full 14 131 ≈ **~118 h ≈ 4.9 days** of tab-open paced fetching.
-- The queue makes those days non-contiguous: the operator opens the tab when convenient,
-  it drains a batch, closes; the cursor persists. No account sees a 5-hour continuous burst
-  — which is the exact shape (`~5.4 h`, brief §E5) that triggered the 35-hour ban.
+> Operator: *"mówimy bardziej jak człowiek — nie bez przerwy, nie w równych odstępach."*
+
+A fixed 15 s cadence is the most bot-like signal there is: a human clicking through profiles
+fires in irregular BURSTS with real BREAKS, never a clean tick. So the loop is shaped like a
+person browsing, and the "4/min" answer is an **average ceiling**, not an interval.
+
+- **Within a burst** (a browsing cluster): inter-call gap jittered, e.g. `random(4 s … 12 s)`
+  — never a constant. A burst covers a random `6–18` users.
+- **Between bursts** (person looks away): a real pause, `random(4 min … 20 min)`.
+- **Average stays ≤ ~4/min** over any 10-min window — with the pauses it lands well under,
+  which is *safer* than the ceiling, not looser.
+- **Piggyback the operator's real session**: the loop only runs while his Chrome tab is
+  actually open, so it inherits his day/night rhythm for free — no 03:00 metronome, the
+  giveaway a cron would produce.
+- **Don't sweep in a clean order**: shuffle the work batch and occasionally skip-and-requeue,
+  so the request sequence isn't a monotonic userId walk.
+- **Implementation:** the jitter/burst/pause parameters live server-side in `/hook/fomo_work`
+  (it returns `{userIds (shuffled), gap_ms_range, burst_size, pause_ms_range}`), so the shape
+  is tunable without reloading the extension; the background SW just obeys them.
+
+Throughput consequence: bursts + minutes-long pauses mean the full 14 131 spreads across
+**many days of ordinary browsing**, not a contiguous run — which is the point. No account
+ever sees the ~5.4 h continuous shape (brief §E5) that earned the 35-hour ban; instead it
+sees what it sees from any user who opens the app now and then. The 100-user zero-403
+acceptance run (§6) is what turns "should look human" into a measured claim.
 
 ## 6. Success criteria (brief §8, made concrete here)
 
