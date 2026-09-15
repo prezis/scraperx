@@ -130,17 +130,32 @@ extension already POSTs to, ~9 000 lines, in production) is a production change 
 bot-gate — the operator's call per change-control, and better done in the bot-gate session
 where its tests + smoke live, not from the scraperx cwd.
 
-## 8. First implementation steps once unblocked (the wędka, ready to hand off)
+## 8. Implementation steps — step 1 DELIVERED by bot-gate 2026-09-15 12:50
 
-1. `bot-gate/scripts/fomo_harvest_ingest.py` — pure function: raw pages → deduped rows,
-   wrapping the existing parse/dedup; unit-tested offline against a saved raw fixture
-   (`data/fomo-solana-refetch-*.jsonl` already on disk).
-2. `bot-gate` `server.py`: `/hook/fomo_work` (+ pause + DID gate) and `/hook/fomo_harvest`
-   (calls #1, stages `data/fomo_harvest.db`), beside `hook_fomo_key`, same token gate.
-3. `fomo-key-agent` → `v1.2.0`: add the DID-gated harvest loop; bump the manifest;
-   operator reloads HIS install only.
-4. Run the 100-user acceptance (§6) with the pause flag lifted once, `FOMO_IGNORE_PAUSE`
-   never set as a default.
+Sequence refined by the bot-gate session (its reply:
+`~/ai/bot-gate/docs/outbox-to-scraperx/2026-09-15-1250-*.md`). **Step 1 is
+gate-INDEPENDENT** — it makes zero FOMO calls, so it is safe to build before the §7.a
+feasibility check; steps 3–5 are the ones the gate blocks.
+
+1. ✅ **DONE** — `bot-gate/scripts/fomo_harvest_ingest.py`: pure function
+   (`parse_page`/`dedupe_pages`/`to_position_rows`), zero network/DB/clock. Selftest GREEN
+   on the real fixture `fomo-solana-refetch-20260915T061624Z.jsonl`: 303 users, 91 990 raw
+   → 18 522 unique, **multiplicity 4.97×** (reproduces the documented 5.00× trap, so the
+   parser is not theoretical). Dedup by `trade.id` (fallback `networkId:mint:createdAt`, NOT
+   a whole-row hash — FOMO mutates `updatedAt` between fetches); first page adding nothing
+   ends the walk; `has_next_claimed` reported back so the caller sees the hard-coded lie;
+   non-200/bad-JSON → `UNDETERMINED`, never `EMPTY` (honest nulls).
+2. `data/fomo_harvest.db` + staging schema (separate file, NEVER `intel.db`). **This must
+   exist before step 3** — cron line 94 DROP+rebuilds `live_positions` every 15 min, so any
+   write path touching `live_events.usd` moves tiers within the quarter-hour; the endpoint
+   has nowhere safe to write until (2) exists.
+3. `server.py` `/hook/fomo_harvest` — beside `hook_fomo_key`, same token gate, writes ONLY
+   to (2).
+4. `server.py` `/hook/fomo_work` — + DID gate + pause-flag respect.
+5. `fomo-key-agent` → `v1.2.0`: DID-gated harvest loop; operator reloads HIS install only.
+
+Steps 2–5 wait on the operator's go (production change, change-control) AND blocker (a).
+Then the 100-user acceptance (§6), `FOMO_IGNORE_PAUSE` never a default.
 
 ## 9. Related
 
