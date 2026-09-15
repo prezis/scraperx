@@ -195,6 +195,60 @@ feasibility check; steps 3–5 are the ones the gate blocks.
 Steps 2–5 wait on the operator's go (production change, change-control) AND blocker (a).
 Then the 100-user acceptance (§6), `FOMO_IGNORE_PAUSE` never a default.
 
+## 9a. ZAKRES ZDECYDOWANY 2026-09-15 — A + wąska próbka /trades (pomiar bot-gate)
+
+**Buduj:** graf społeczny dla userów z adresem **+ próbka `/trades` ~320 S/A/B, raz na miesiąc**.
+**Nie buduj:** `/balances` (wycena jest nasza), `userHandle/` (zwraca Privy embed, nonce 0 —
+bezużyteczny dla handle→portfel), pełnego przebiegu `/trades` po 14 131 userach.
+
+### Dlaczego świadek `/trades` ZOSTAJE — i dlaczego moja hipoteza padła
+
+Zaproponowałem przemierzenie `can_we_tier_from_our_own_feed.py` na oczyszczonym wejściu,
+licząc, że dzisiejsze sprzątanie mianownika ($40 432 173 611 → $179 370 678) zamknie lukę i
+uczyni ledger FOMO zbędnym. **Nie zamknęło.** Pomiar bot-gate (ich lane, ich liczby, cztery
+przebiegi, kontrola pozytywna scorera 6 380/7 491 = 85,2% w każdym):
+
+| wariant | zgodność tieru |
+|---|---|
+| produkcja (fizyka OFF), wszystkie łańcuchy | 180/417 = **43,2%** |
+| PHYSICS (`LIVE_POS_HONOR_PHYSICS=1`), wszystkie łańcuchy | 181/417 = **43,4%** |
+| produkcja, bez Solany | 157/372 = **42,2%** |
+| PHYSICS, bez Solany | 157/372 = **42,2%** — identycznie |
+
+**Sprzątanie przesunęło zgodność o JEDNEGO użytkownika.** Luka nie jest napędzana trucizną.
+
+**Co ją napędza — kierunek macierzy jest systematyczny:** nasz feed **AWANSUJE** (B→A 57–58,
+C→A 20, D→A 9, FOMO S→A 3). To brak **HISTORII** (retencja 14 dni, base/bsc dopiero od
+2026-09-13, wobec dożywotniego ledgera FOMO), nie brak adresów i nie trucizna. Dokładnie to
+rozgałęzienie, które docstring skryptu przewidywał.
+
+**Wartość tego pomiaru leżała w ROZDZIELENIU przyczyn, nie w potwierdzeniu mojej nadziei.**
+Przed sprzątaniem nie dało się odróżnić „rekonstrukcja jest gorsza przez truciznę" od „przez
+pokrycie" — mianownik był w 99,2% fantomem. Teraz wiadomo: **pokrycie**, a tego sprzątanie nie
+naprawia ani o wiersz (`measure_feed_recall_vs_fomo_ledger.py`: 25,7% trejdów EVM FOMO).
+
+### Zweryfikowane przeze mnie (nie relacjonowane na słowo)
+
+- `LIVE_POS_DB` override wszedł do skryptu (`can_we_tier_from_our_own_feed.py:54-56`) — lustro
+  naszego `LIVE_POS_OUT`, więc pomiar biegnie na wariancie i produkcja stoi nietknięta.
+- `--chains` bez Solany jest uzasadnione: `intel.db::trades` ma `networkId` 4663 (213 197),
+  8453 (160 190), 56 (146 753), 143 (7 014) i **ZERO wierszy 1399811149** — FOMO `/trades` nie
+  zwraca Solany w ogóle.
+- Obie strony wypchnięte (bot-gate `3b0276c4`, global-graph `012b4fc4`).
+
+### Konsekwencja dla wartości opcji A
+
+Kolumny społeczne (`fomo_followers`/`following`/`verified`) **nie są wejściami tieru** —
+`_edge_tier` czyta wyłącznie exp_R/wr/kelly/n_decisive/lifetime_pnl, a te kolumny są tylko
+COALESCE-upsertowane i eksportowane do xlsx. Więc A ma wartość **operatorską** (kogo warto
+śledzić — rola FOMO jako „źródła portfeli"), a **nie tierową**. Zbierać wolno i tylko dla
+userów z adresem (11 344 z 14 131 = 80,3%).
+
+### Budżet powierzchni bana
+
+~23 000 requestów na miesiąc przy ludzkim tempie z §5 ≈ **4 doby rozłożone na 30**, nie 4,9
+doby ciągiem. Próbka `/trades` to ~320 wywołań raz na miesiąc, nie 14 131.
+
 ## 9. Related
 
 - `README.md` / `INVENTORY.md` / `EVIDENCE.md` (this dir) — the measured brief.
