@@ -149,3 +149,4 @@ where its tests + smoke live, not from the scraperx cwd.
 - `~/ai/bot-gate/intel-fe/backend/server.py:8972` — `hook_fomo_key`, the receiver pattern to copy.
 - `~/ai/global-graph/tools/fomoapp-api-bible.md` — field traps.
 - `~/ai/global-graph/patterns/fomo-api-403-diagnostic.md` — the CF-vs-account 403 flowchart.
+- `~/.claude/skills/fomo-harvest/SKILL.md` — the FOMO procedure skill; carries this architecture's non-negotiables inline and auto-triggers on FOMO work.
