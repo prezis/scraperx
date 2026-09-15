@@ -35,6 +35,7 @@ Cache hits are cheap; cascade misses fall through silently (errors collected on 
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import ipaddress
 import logging
@@ -43,9 +44,10 @@ import socket
 import sqlite3
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
@@ -343,6 +345,70 @@ def _fetch_playwright(url: str, timeout: int) -> tuple[str, int | None]:
             browser.close()
 
 
+# ---------------------------------------------------------------------------
+# Where a leg RUNS (not just what it returns)
+# ---------------------------------------------------------------------------
+
+# Both of these drive Playwright's *sync* API. Playwright refuses that API on a
+# thread that owns a running asyncio loop and raises immediately:
+#   "It looks like you are using Playwright Sync API inside the asyncio loop."
+# So a caller shaped `async def f(): smart_fetch(url)` -- a sync call inside a
+# coroutine -- silently loses BOTH browser legs. The stdlib legs (jina, urllib)
+# have no such constraint and stay on the caller's thread.
+_BROWSER_MODES: frozenset[str] = frozenset({"playwright", "scrapling_stealth"})
+
+# Outer bound on waiting for the worker thread. The leg already enforces
+# `timeout` itself; this only stops a wedged browser from hanging the caller
+# forever, and is deliberately generous (Turnstile solving is 30-90s).
+_OFFLOAD_GRACE_S = 30
+
+
+def _loop_is_running() -> bool:
+    """True when the CURRENT thread owns a running asyncio event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _call_leg(
+    mode: str,
+    leg: Callable[..., tuple[str, int | None]],
+    url: str,
+    timeout: int,
+) -> tuple[str, int | None]:
+    """Run one cascade leg, moving the Playwright-backed ones off the loop thread.
+
+    MEASURED 2026-09-15 -- this is not a theoretical hazard. Same URL, same leg:
+    a sync caller got ``ok=True`` in 0.57s; the identical call inside
+    ``asyncio.run`` failed in 0.00s (playwright) / 0.08s (stealth). In
+    production ``~/.scraperx/method-telemetry.jsonl`` carried 9205 attempts on
+    ``dexscreener.com`` with **playwright 0/2292 and scrapling_stealth 0/2292**,
+    all from ca-gate's ``upstream/dexscreener.py::_scraperx_fallback`` -- an
+    ``async def`` calling ``smart_fetch`` directly. Failure latencies of
+    14-54 ms are the fingerprint: far too fast to be a wall.
+
+    A worker thread owns no loop, so the sync API is legal there. Exceptions
+    propagate unchanged, which matters: the cascade must keep telling a WALL
+    apart from a broken call shape.
+
+    No running loop -> the leg is called inline exactly as before, so a sync
+    caller pays nothing for a thread it does not need.
+    """
+    if mode not in _BROWSER_MODES or not _loop_is_running():
+        return leg(url, timeout)
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"scraperx-{mode}")
+    try:
+        future = executor.submit(leg, url, timeout)
+        return future.result(timeout=timeout + _OFFLOAD_GRACE_S)
+    finally:
+        # Never block the caller on a browser that refuses to die; a straggler
+        # thread is joined at interpreter exit.
+        executor.shutdown(wait=False)
+
+
 def _fetch_scrapling_stealth(
     url: str,
     timeout: int,
@@ -536,7 +602,7 @@ def smart_fetch(
         leg = leg_fns[mode]
         t0 = time.monotonic()
         try:
-            content, status = leg(url, timeout)
+            content, status = _call_leg(mode, leg, url, timeout)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             if not content or not content.strip():
                 result.errors.append((mode, "empty body"))
