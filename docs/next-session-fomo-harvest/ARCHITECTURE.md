@@ -249,6 +249,70 @@ userów z adresem (11 344 z 14 131 = 80,3%).
 ~23 000 requestów na miesiąc przy ludzkim tempie z §5 ≈ **4 doby rozłożone na 30**, nie 4,9
 doby ciągiem. Próbka `/trades` to ~320 wywołań raz na miesiąc, nie 14 131.
 
+## 9b. KONTRAKT KLIENT↔SERWER — przypięty 2026-09-15 (klient v1.2.0 napisany PIERWSZY)
+
+Krok 5 zbudowany (`tools/fomo-key-agent` v1.2.0, +217 linii, **0 usunięć** — tor kluczy
+nietknięty, `node --check` OK, **zero nowych uprawnień**, więc nikt nie musi nic re-akceptować).
+Serwer (kroki 2–4, bot-gate) musi pasować do tego kontraktu.
+
+### `GET /hook/fomo_work?agent_sub=<privy DID>` · nagłówek `X-Fomo-Key-Token`
+
+```json
+200 → { "run_token": "…|null",
+        "pacing": { "gapMinMs": 6000, "gapMaxMs": 14000, "burst": 6,
+                    "pauseMinMin": 8, "pauseMaxMin": 25 },
+        "tasks": [ { "path": "/trades?userId=<uuid>&size=1",
+                     "user_id": "<uuid>", "kind": "trades|followers|following" } ] }
+```
+
+| odpowiedź | zachowanie klienta |
+|---|---|
+| `200` + `tasks: []` | pauza albo pusta kolejka → **ZERO wywołań prod-api** |
+| `404` | „jeszcze nie wdrożone" → bezczynność 60–90 min, **ZERO wywołań** |
+| cokolwiek innego / nieznany kształt | **ZERO wywołań** — klient nigdy nie wymyśla pracy |
+
+`pacing` jest opcjonalny; klient ma własne, **wolniejsze** domyślne. Serwer stroi kształt bez
+przeładowywania wtyczki.
+
+### `POST /hook/fomo_harvest` · nagłówek `X-Fomo-Key-Token`
+
+```json
+normalnie: { run_token, agent_sub, user_id, kind, path, http_status, raw, ts, agent }
+abort:     { run_token, agent_sub, aborted: true, reason: "http_403", path, ts, agent }
+```
+
+`raw` to **surowe bajty odpowiedzi** — klient nie parsuje niczego. Pułapka 5,00× stron,
+filtr `X-Supported-Chains` i dedup po `trade.id` to wiedza python-side, która ma testy; druga
+kopia w JS rozjechałaby się z tą, za której naukę już zapłaciliśmy.
+
+### Obowiązki SERWERA (bot-gate)
+
+1. **Honorować `~/.claude/state/fomo-operator-pause` PRZED wydaniem zadania** — wtyczka nie
+   widzi systemu plików operatora, więc pauza musi być egzekwowana po stronie serwera. To
+   reguła operatora, nie opcja.
+2. **Brama DID** — `agent_sub` musi zgadzać się ze skonfigurowanym DID operatora, inaczej
+   `tasks: []`. Instalacje kolegów dalej wysyłają WYŁĄCZNIE klucze.
+3. `path` jest **autorstwa serwera**. Klient odrzuca cokolwiek, co nie zaczyna się od `/`, i
+   nigdy nie buduje URL-a ze zgadywania.
+4. Zapis **wyłącznie** do `data/fomo_harvest.db`, nigdy do `intel.db` (DROP+rebuild co 15 min).
+
+### Gwarancje KLIENTA (v1.2.0)
+
+- **Domyślnie WYŁĄCZONY.** Wymaga jawnego włączenia + podania DID operatora.
+- **Brama DID także po stronie klienta** — dzielnik wolumenu = 1, konto kolegi nie zostaje
+  wydane bez pytania tylko dlatego, że zaktualizował wtyczkę.
+- **403 = ABORT całego przebiegu**, POST raportu abort, parking 240 min. Bez przepychania.
+- Jitter w serii, **tasowana kolejność**, seria ograniczona budżetem 150 s zegara.
+- Pętla rusza z alarmu i z załadowania zalogowanej karty — **dziedziczy godziny operatora**,
+  więc nie ma metronomu o 03:00.
+
+### Ograniczenie MV3, które ukształtowało projekt
+
+Service worker MV3 jest eksmitowany w bezczynności i twardo ograniczony ~5 minutami nawet przy
+pracy. **Pętla z pauzami 4–20 min NIE MOŻE przeżyć w workerze.** Dlatego jeden tick alarmu =
+jedna ograniczona seria, następny tick planowany z jitterem, a **cały stan żyje w
+`chrome.storage.local`**. Kto będzie to zmieniał — to jest powód, dla którego nie ma tu pętli.
+
 ## 9. Related
 
 - `README.md` / `INVENTORY.md` / `EVIDENCE.md` (this dir) — the measured brief.
