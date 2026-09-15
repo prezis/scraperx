@@ -195,7 +195,53 @@ feasibility check; steps 3–5 are the ones the gate blocks.
 Steps 2–5 wait on the operator's go (production change, change-control) AND blocker (a).
 Then the 100-user acceptance (§6), `FOMO_IGNORE_PAUSE` never a default.
 
-## 9a. ZAKRES ZDECYDOWANY 2026-09-15 — A + wąska próbka /trades (pomiar bot-gate)
+## 9a. ⚠ ZAKRES POD REWIZJĄ OPERATORA 2026-09-15 22:0x — próbka /trades WSTRZYMANA
+
+**Nie budować próbki `/trades` ani grafu społecznego do decyzji operatora.** Klient v1.2.0
+nie wymaga zmiany: po poprawce bezpieczeństwa (§9b) zakres wybiera serwer, więc wstrzymanie
+jest czysto serwerowe.
+
+**Pytanie operatora, które to wywróciło** (verbatim): *„po co nam trades dla S/A/B i innych
+tam, gdzie potwierdziliśmy, że wallety EVM i SOL przypisane użytkownikom są poprawne?"*
+
+Trafne, i pomiar to potwierdza. Nasze 42–43% zgodności tieru mierzyło **brak HISTORII**
+(retencja 14 dni; recall feedu vs ledger FOMO 25,7–28,7%), a historię dla **potwierdzonego
+portfela backfilluje się ON-CHAIN** (`getAssetTransfers` / `getSignaturesForAddress`), nie z
+FOMO. Czyli świadek `/trades` dla S/A/B rozwiązywałby problem, który ma tańsze i trwalsze
+rozwiązanie po stronie łańcucha.
+
+**Zmierzone przeze mnie na `intel.db::wallets` (nie relacjonowane):**
+
+| klasa | użytkowników |
+|---|---|
+| ma **OBA** portfele (EVM+SOL) | **11 344** |
+| **BEZ portfela** (custodial) | **2 787** |
+| „tylko jeden portfel" | **klasa nie istnieje** — podział jest binarny |
+
+Tiery klasy bez portfela: `-` 2 364 · D 202 · C 196 · **B 21 · A 4**.
+
+**Jedyna klasa, gdzie FOMO API jest STRUKTURALNIE jedynym źródłem trejdów, to custodial** —
+oni nie mają portfela do odczytania, więc żaden backfill on-chain ich nie obejmie, nigdy.
+Ale realna stawka to **25 użytkowników A/B** (4+21) plus 196 C i 202 D. Czy to warte
+powierzchni bana — decyzja operatora, nie moja. *(bot-gate podaje 23 436 wierszy `trades` dla
+tej klasy; nie zweryfikowałem tej liczby — join po nazwie kolumny mi nie przeszedł.)*
+
+### Zakres FOMO kurczył się DZIŚ czterokrotnie, za każdym razem przez pomiar
+
+1. „potrzebne do wyceny base/bsc" → **martwe** (base/bsc naprawione 13.09 15:17)
+2. „graf społeczny ma wartość tierową" → **martwe** (`_edge_tier` tych kolumn nie czyta)
+3. „`userHandle/` da handle→portfel" → **martwe** (zwraca Privy embed, nonce 0)
+4. „świadek `/trades` dla S/A/B" → **pod rewizją** (luka to historia, a historia jest on-chain)
+
+**Co przeżyło każdą rundę pomiaru:** (a) odkrywanie NOWYCH użytkowników + mapowanie
+handle→portfel (roster raz na miesiąc), (b) `lifetime_pnl_api` jako komponent 40% PnL — do
+czasu własnego silnika, (c) klasa custodial. Nic więcej.
+
+---
+
+### (poprzedni zapis, zachowany — na czym stała decyzja przed pytaniem operatora)
+
+## 9a-old. ZAKRES ZDECYDOWANY 2026-09-15 — A + wąska próbka /trades (pomiar bot-gate)
 
 **Buduj:** graf społeczny dla userów z adresem **+ próbka `/trades` ~320 S/A/B, raz na miesiąc**.
 **Nie buduj:** `/balances` (wycena jest nasza), `userHandle/` (zwraca Privy embed, nonce 0 —
