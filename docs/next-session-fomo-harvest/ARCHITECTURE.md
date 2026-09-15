@@ -261,9 +261,30 @@ Serwer (kroki 2–4, bot-gate) musi pasować do tego kontraktu.
 200 → { "run_token": "…|null",
         "pacing": { "gapMinMs": 6000, "gapMaxMs": 14000, "burst": 6,
                     "pauseMinMin": 8, "pauseMaxMin": 25 },
-        "tasks": [ { "path": "/trades?userId=<uuid>&size=1",
-                     "user_id": "<uuid>", "kind": "trades|followers|following" } ] }
+        "tasks": [ { "kind": "trades|followers|following", "user_id": "<uuid>" } ] }
 ```
+
+🔴 **ZMIANA KONTRAKTU 2026-09-15, po przeglądzie bezpieczeństwa — `path` ZNIKNĄŁ.**
+Pierwszy szkic v1.2.0 przyjmował `task.path` od serwera i doklejał do niego **Bearer
+operatora + cookies sesji**, walidując wyłącznie `startsWith("/")`. Przegląd zgłosił to jako
+SSRF / server-controlled credentialed requests **oraz** eksfiltrację — i obie diagnozy mają
+**jedną przyczynę**: to **confused deputy**. Przejęty receiver (albo sam wyciekły wspólny
+token) mógłby kazać zalogowanej przeglądarce operatora uderzyć **uwierzytelnionym żądaniem w
+dowolną ścieżkę prod-api** — także w endpoint ujawniający jego dane prywatne — i odebrać
+surową odpowiedź przez `/hook/fomo_harvest`. Klient by posłuchał, bo nie miał zdania o tym,
+CO pobiera, tylko o pierwszym znaku łańcucha.
+
+**Naprawa odwraca granicę zaufania zamiast filtrować mocniej:** serwer wybiera **KOGO** i
+**JAKIEGO RODZAJU**; URL składa **klient** z zamkniętej listy (`DH_ENDPOINTS`), `user_id`
+waliduje jako UUID, a origin sprawdza ponownie przez `new URL()`. **Jakikolwiek `path`
+przysłany przez serwer jest IGNOROWANY.** Zakres, kohorta i tempo zostają strojone
+serwerowo — nie tracimy nic z projektu harvestu poza możliwością wskazania dowolnego celu
+cudzymi poświadczeniami.
+
+Kontrola adwersaryjna klienta (9/9): legalne `trades`/`followers` budują poprawne ścieżki ·
+`{kind:"trades", path:"/v2/me/private"}` → **path zignorowany**, wykonana legalna ścieżka ·
+nieznany `kind`, sam `path` bez `kind`, `user_id` z traversalem, protocol-relative `//evil.com`,
+`x@evil.com`, pusty — **wszystkie ODRZUCONE**.
 
 | odpowiedź | zachowanie klienta |
 |---|---|
@@ -292,8 +313,8 @@ kopia w JS rozjechałaby się z tą, za której naukę już zapłaciliśmy.
    reguła operatora, nie opcja.
 2. **Brama DID** — `agent_sub` musi zgadzać się ze skonfigurowanym DID operatora, inaczej
    `tasks: []`. Instalacje kolegów dalej wysyłają WYŁĄCZNIE klucze.
-3. `path` jest **autorstwa serwera**. Klient odrzuca cokolwiek, co nie zaczyna się od `/`, i
-   nigdy nie buduje URL-a ze zgadywania.
+3. **`path` NIE istnieje w kontrakcie.** Serwer podaje wyłącznie `kind` + `user_id`; URL składa
+   klient z zamkniętej listy. Nie wysyłajcie `path` — zostanie zignorowany.
 4. Zapis **wyłącznie** do `data/fomo_harvest.db`, nigdy do `intel.db` (DROP+rebuild co 15 min).
 
 ### Gwarancje KLIENTA (v1.2.0)
