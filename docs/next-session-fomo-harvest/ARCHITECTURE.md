@@ -423,6 +423,94 @@ nas chroni**; chroni szablon + `encodeURIComponent`. Zastąpione inwariantem sza
 (po normalizacji URL, która zwija `..`) + kluczy query: **0/304** złamanych na prawdziwym
 builderze, **7/14** wstrzyknięć złapanych na celowo zepsutym.
 
+## 10. 2026-09-16 — CO TEN TOR NAPRAWDĘ PRZYWRÓCIŁ, i kontrakt `harvest_swaps` (#517)
+
+### 10.1 Odkrywanie użytkowników stało CZTERY MIESIĄCE — to jest właściwa miara tej pracy
+
+Zmierzone 2026-09-16 na pytanie operatora „dlaczego @MomoOnChain nigdy u nas nie był"
+(726 trejdów FOMO, $20,06 mln wolumenu, 30 019 obserwujących):
+
+| klucz szukania | wynik |
+|---|---|
+| `user_id`, `handle` (nocase), SOL, EVM, `demix_wallet`, `denied_*` | **0** |
+| `wallet_identity_history` (48 489 wierszy), po adresie i po handle | **0** |
+| `handle_aliases` | **0** — kolumna istnieje, wypełniona w **0/48 489** |
+| pliki odkrywania (`discovered-users*.jsonl`, `sweep_gate_log.jsonl`) | **0/0/0**, kontrola pozytywna `taxrat` → 1 |
+
+**To nie był dryf nicku.** Oba tory odkrywania spały: BFS społeczny to `SEEDS = ("remusofmars",
+"change", "frankdegods")` w `fomo_harvest.py:54` — trzy nazwy, jednorazowo, zamrożone od
+2026-05-12; tor leaderboardowy ma `LIMIT = 50` × 4 okna = **sufit 200 tożsamości na przebieg**
+i jest poza cronem od 2026-09-12 (decyzja operatora o wstrzymaniu sweepów, nie przeoczenie).
+
+Momo przyszedł **13:48:25 ze strony `following` innego użytkownika** — był **JEDEN SKOK** od
+kogoś, kogo już mieliśmy. Stąd wniosek, który zmienia sens całego toru:
+
+> **Wtyczka nie jest trzecim torem odkrywania. Jest ODMROŻONYM BFS-em** — tym samym mechanizmem
+> co w maju, chodzącym ciągle, tempowanym tak, by nie złapać bana, i zasilanym z żywej sesji
+> zamiast z trzech nazw wpisanych na sztywno. D8 nie jest dodatkiem; przywraca zdolność.
+
+### 10.2 Pierwszy urobek D8 — i pierwszy raz, gdy widzimy Solanę po stronie FOMO
+
+Pięć pierwszych ksiąg z partii 100 (16:05 BST), userzy spoza `wallets`:
+
+| konto | trejdy FOMO | wolumen | pozycji na dysku |
+|---|---|---|---|
+| @CryptoTalkMan | 860 | $3 539 371 | 96 |
+| @cases | 125 | $3 311 091 | 50 |
+| @Stark1 | 6 599 | $2 926 444 | 59 |
+| @horseimnot | 2 307 | $1 650 224 | **1 034** |
+| @neo10 | 492 | $1 157 878 | 66 |
+
+Rozkład sieci w 1 445 pozycjach: **SOLANA 892 (61,7%)** · Robinhood 378 · BNB 157 · Base 17 ·
+Monad 1. Czyli **ten tor od pierwszego dnia widzi nogę, której korpus swapów nie ma ani razu**
+w 1 472 339 wierszach (biblia §975 — wada nagłówka, nie pól).
+
+### 10.3 Tempo referencyjne klienta — ZMIERZONE, nie założone
+
+| wielkość | wartość |
+|---|---|
+| wywołania `/hook/fomo_work` | **4,1/h** · odstępy min 5,5 / **mediana 12,1** / max 62,4 min |
+| strony | **15,7/h** = **0,26 strony/min** |
+| przepustowość | 377 stron/dobę przy pracy ciągłej; realnie ~157 (laptop nie chodzi 24 h) |
+
+Założenie „4 wywołania/min" z 15.09 było **SUFITEM decyzji operatora, nie celem** — klient jest
+o rząd wielkości wolniejszy dzięki własnym ogranicznikom (gap ≥6 s, burst ≤6, pauza 8–25 min),
+których serwer może tylko ZWOLNIĆ. Model ryzyka bana liczymy po kliencie.
+
+### 10.4 Kontrakt `harvest_swaps` — ZAMKNIĘTY 2026-09-16 (mój projekt + akcept bot-gate + decyzja operatora)
+
+**Korekta założenia, która zmniejszyła zakres pracy:** pola `inNetworkId` / `outNetworkId` /
+`recipient` / `isOffPlatform` **nie są nowe** — korpus `fomo_swaps_cumulative.jsonl` ma komplet
+30 pól od 114 dni; wadą był wyłącznie nagłówek proszący o literał `solana`. Zweryfikowane przez
+bot-gate na 60 000 wierszy: pary wyłącznie cross-chain, **zero SOL→SOL**, `provider` RELAY 59 952.
+Nowy tor więc **ODTWARZA** schemat, nie wymyśla go — stary korpus i nowy staging będą unionowalne.
+
+**Rzecz, którą rozstrzygnął jeden prawdziwy rekord:** `inNetworkId=8453, outNetworkId=1399811149,
+networkId=8453` — swap Base→Solana. Czyli **`networkId` NIE mówi, na jakim łańcuchu był handel**;
+mówi to dopiero para (in, out). Na `networkId` stał fałszywy wniosek kanonu, obalony w biblii.
+
+Trzy decyzje, każda z zapisanym kosztem:
+
+| # | decyzja | dlaczego | koszt, który przyjmujemy |
+|---|---|---|---|
+| 1 | PK `(user_id, swap_id)` | `user_id` FOMO jest MUTOWALNY (biblia §881); re-rejestracja ma być **widoczna**, nie scalona po cichu | liczba wierszy ≠ liczba swapów → widok `harvest_swaps_distinct` + zdanie w DATA-CATALOGUE |
+| 2 | BRAK dedupu przy zapisie | ten sam swap z dwóch nagłówków to **pomiar rozmiaru dziury**, nie śmieć | dedup JAWNY przy odczycie: widok scalający po `swap_id` z kolumną `n_sources` |
+| 3 | `address` ZOSTAJE, podpisana | **operator, dosłownie: „musi zostać, podpisany, oznaczony, wiadomy, znany"** — bezużyteczność ma być UDOKUMENTOWANA, nie przemilczana, bo puste pole wyglądające jak adres zaprasza do fałszywego wniosku | komentarz „pasuje do 0/200 000" w DDL + docstringu konsumenta + DATA-CATALOGUE |
+
+Dopiski bot-gate, wszystkie przyjęte: **`chains_header text not null`** (dosłowna wartość
+`X-Supported-Chains`, którą pobrano stronę — cała wada była nagłówkiem, więc każdy wiersz niesie
+swój), **`fetched_at integer not null`** (epoch serwera, ≠ `consumed_at`), oraz
+`create index ix_harvest_swaps_swap on harvest_swaps(swap_id)` pod przyszły union.
+
+**Zasiew partii 1: 681 kont**, nie 963 — `attribution_status IN ('CONFIRMED','DEMIX_CONFIRMED')
+AND real_sol_wallet IS NOT NULL AND real_sol_wallet <> '' AND (ledger_sol_verdict IS NULL OR
+ledger_sol_verdict = 'UNDETERMINED')`. Pierwsza partia **KALIBRACYJNA: 20 kont × cap 3 strony**,
+bo liczby stron/konto NIE ZNAMY — szacunek 1,3 stoi na trejdach EVM jako proxy, a noga SOL jest
+u nas niezmierzona z definicji. 60 stron zamienia proxy w pomiar. `fomo_swap_count` jako
+mianownik odpada (biblia §57).
+
+**Bramka: GO operatora + D7 (#506).** Tabela nie powstaje wcześniej.
+
 ## 9. Related
 
 - `README.md` / `INVENTORY.md` / `EVIDENCE.md` (this dir) — the measured brief.
