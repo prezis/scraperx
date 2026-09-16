@@ -380,6 +380,49 @@ pracy. **Pętla z pauzami 4–20 min NIE MOŻE przeżyć w workerze.** Dlatego j
 jedna ograniczona seria, następny tick planowany z jitterem, a **cały stan żyje w
 `chrome.storage.local`**. Kto będzie to zmieniał — to jest powód, dla którego nie ma tu pętli.
 
+## 9c. KSZTAŁTY ENDPOINTÓW — uziemione w kodzie bot-gate, nie w prośbie (v1.2.2, 2026-09-16)
+
+bot-gate podał listę kindów i poprosił o konkretne typy parametrów. Trzy z nich nie przeżyły
+przeczytania **ich własnych skryptów**. Zapisane tutaj, bo każda z tych pomyłek byłaby CICHA —
+nie wywróciłaby niczego, tylko zwróciła wiarygodne zero.
+
+| co proszono | co jest w kodzie | skutek gdyby posłuchać na słowo |
+|---|---|---|
+| `cursor` typu `uuid` | `quote_plus(cursor)` w `enrich_trading_wallets_v2.py:164` i `v3_async.py:163` → token **nieprzezroczysty** | walidator odrzuca każdą realną stronę 2 → raport „brak dalszych stron", czyli **zero wyprodukowane przez nasz własny typ** |
+| `lastId` na followers/followingPaginate | `harvest_social_graph.py:6-7` to **docstring**; kod (:115) wysyła tylko `{"limit": N}`, skrypt `deprecated_2026-07-05`. Żywy `lastId` należy do `/feed/token` (`harvest_feed_token.py:164`). Żywy kształt tutaj to `?cursor=` (`fomo_harvest.py:222`) | paginacja po parametrze, którego ten endpoint może nie znać |
+| `leaderboard` z `timeframe` + `page` | `leaderboard_discover.py:150-156`: serwer **ignoruje** limit (50→1000 = zawsze 100 wierszy) i **ignoruje** timeframe (kontrola negatywna `zzz9` → HTTP 200, 100 wierszy) | typowany parametr wyrzucany do kosza = **fałszywa obietnica kontroli**, nie bezpieczeństwo |
+
+**Zasada, która z tego wychodzi:** typ parametru zakotwicz na tym, co token **DZIELI** w całej
+klasie (nieprzezroczysty, ograniczony, URL-enkodowany), a nie na kształcie tej jednej wartości,
+którą akurat zobaczyłeś. UUID był dokładnie takim tokenem wyróżniającym.
+
+**Allowlista v1.2.2:** `followers` / `following` (odkrywanie; gołe wywołanie to **200 pełnych
+rekordów**, `leaderboard_discover.py:181`) · `trades` (`?userId=&size=100&page=1`, zakres
+egzekwuje serwer) · `lifetime_pnl` · `leaderboard` (ZERO parametrów). `roster` **nadal nieobecny**
+— bo bot-gate potwierdził, że roster **JEST** tym spacerem po followers/following, więc nie ma
+czego zgadywać. `identity` **nie istnieje jako kind** — portfel bierze się z dopasowania ledgera
+trejdów do łańcucha (#492), nie z osobnego wywołania; kind #2 zapadł się w #1.
+
+**Odrzucenie jest teraz RAPORTOWANE**, nie połykane: `POST /hook/fomo_harvest` z
+`{rejected:[{kind,user_id,reason}]}`. Poprzednio `if (!path) continue;` wyglądał po stronie
+serwera identycznie jak „tej strony nie ma" — serwer zapisałby opinię naszego walidatora jako
+pomiar FOMO.
+
+**Kontrole są ZAKOMITOWANE** (`tools/fomo-key-agent/tests/allowlist_controls.mjs`, 26/26,
+`node tests/allowlist_controls.mjs`). Dwie poprzednie rundy dowodziłem w shellu i dowód ginął
+z sesją — granica bezpieczeństwa re-argumentowana z pamięci przy każdej edycji nie jest granicą.
+Test **parsuje żywe źródło**, nie kopię, bo skopiowana allowlista przechodziłaby własne testy
+w nieskończoność, podczas gdy `background.js` dryfuje pod spodem.
+
+⚠ **Kontrola pozytywna złapała martwy inwariant.** Pierwsza wersja sprawdzała
+`new URL(API_BASE + path).origin === API_BASE` — 198 zielonych buildów, które **nie mogły
+zawieść**: gdy baza niesie origin, wszystko doklejone jest ścieżką, więc nawet
+`//evil.example.com/x` zostaje na prod-api. To samo dotyczy **tej samej linijki w
+`background.js`** (`target.origin !== API_BASE`) — jest nieszkodliwa i zostaje, ale **to nie ona
+nas chroni**; chroni szablon + `encodeURIComponent`. Zastąpione inwariantem szablonu ścieżki
+(po normalizacji URL, która zwija `..`) + kluczy query: **0/304** złamanych na prawdziwym
+builderze, **7/14** wstrzyknięć złapanych na celowo zepsutym.
+
 ## 9. Related
 
 - `README.md` / `INVENTORY.md` / `EVIDENCE.md` (this dir) — the measured brief.
