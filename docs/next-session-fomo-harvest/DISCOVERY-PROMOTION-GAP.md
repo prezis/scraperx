@@ -8,7 +8,7 @@
 | 2 leaderboard source | started — 16 of 49,895 `discovered_users` rows have `first_seen_kind='leaderboard'` (was 0 on 09-17) | `fomo_harvest.db` |
 | 3 handle drift | detector exists (`bot-gate/scripts/detect_handle_drift.py`); cards #551 completed, #552 pending | board 66f77a54 |
 | 4 resolve-handle task | 1 row `first_seen_kind='handle_resolve'`; #638 / #668 pending | board 66f77a54 |
-| ⚠ store freshness | `max(discovered_users.last_seen_at)` = **2026-09-22 11:00 BST** — no new sighting for ~56 h at this read; cause NOT measured | `fomo_harvest.db` |
+| ⚠ store freshness | `max(discovered_users.last_seen_at)` = **2026-09-22 11:00 BST** — no new sighting for ~56 h at this read. Measured: since then the queue completed only `swaps` 23 · `lifetime_pnl` 7 · `trades` 1 — **zero `followers`/`following` pages**, and the discovery writer only runs on those. Last page of any kind 09-23 23:44 BST. WHY the author issued no social tasks: NOT measured (bot-gate owns the author) | `fomo_harvest.db::tasks`, `raw_pages` |
 
 **Original status (2026-09-17): PLAN, not built.** Operator (2026-09-17) named this scraperx's MAIN job once the
 demix / EVM+SOL address work is done: find new users (goal b) + detect handle changes
