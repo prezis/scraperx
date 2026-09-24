@@ -1,6 +1,16 @@
 # Discovery → Promotion gap — the "users escape us" plan (drafted 2026-09-17)
 
-**Status: PLAN, not built.** Operator (2026-09-17) named this scraperx's MAIN job once the
+**Status 2026-09-24 19:0x BST — item 1 SHIPPED by bot-gate, the rest partly in motion (read before acting):**
+
+| item | state on disk | evidence |
+|---|---|---|
+| 1 repoint builder | **SHIPPED** — #552 (a), architect 2026-09-17 10:59; kill switch `HARVEST_USERS_CONSUMER=0` | `bot-gate/intel-fe/backend/build_intel_db.py:2104-2134`; `data/fast-refresh-stdout.log` 44 union lines, last build `meta.generated_at` 09-24 18:03 BST: harvest users 49,895 · ADDED 47,119 (labelled PROFILE_UNTESTED via #511) · 46 withheld (handle worn by another row) |
+| 2 leaderboard source | started — 16 of 49,895 `discovered_users` rows have `first_seen_kind='leaderboard'` (was 0 on 09-17) | `fomo_harvest.db` |
+| 3 handle drift | detector exists (`bot-gate/scripts/detect_handle_drift.py`); cards #551 completed, #552 pending | board 66f77a54 |
+| 4 resolve-handle task | 1 row `first_seen_kind='handle_resolve'`; #638 / #668 pending | board 66f77a54 |
+| ⚠ store freshness | `max(discovered_users.last_seen_at)` = **2026-09-22 11:00 BST** — no new sighting for ~56 h at this read; cause NOT measured | `fomo_harvest.db` |
+
+**Original status (2026-09-17): PLAN, not built.** Operator (2026-09-17) named this scraperx's MAIN job once the
 demix / EVM+SOL address work is done: find new users (goal b) + detect handle changes
 (goal c) so users stop escaping. Trigger: @wizardofsoho — a 17,311-follower / 616-trade
 account the operator wanted on copy, which I first reported as "not on disk". He WAS on
