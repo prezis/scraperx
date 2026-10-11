@@ -72,6 +72,68 @@ def test_build_cdx_url_rejects_bad_match_type():
 
 
 # ---------------------------------------------------------------------------
+# _build_cdx_url — collapse param (IA CDX deduplication)
+# ---------------------------------------------------------------------------
+
+
+def test_build_cdx_url_collapse_omitted_by_default():
+    """When collapse is None, the URL has no ``collapse=`` clause at all."""
+    url = _build_cdx_url("ici.org/info/", from_year=None, to_year=None, limit=10, match_type="prefix")
+    assert "collapse=" not in url
+
+
+def test_build_cdx_url_collapse_bare_field():
+    """``collapse=urlkey`` — first snapshot per unique URL within the window."""
+    url = _build_cdx_url(
+        "ici.org/info/", from_year=None, to_year=None, limit=10, match_type="prefix",
+        collapse="urlkey",
+    )
+    assert "collapse=urlkey" in url
+
+
+def test_build_cdx_url_collapse_field_with_n():
+    """``collapse=timestamp:8`` — one row per YYYYMMDD bucket."""
+    url = _build_cdx_url(
+        "ici.org/info/", from_year=2018, to_year=2018, limit=10, match_type="prefix",
+        collapse="timestamp:8",
+    )
+    # Colon must be preserved (URL-safe in CDX query string)
+    assert "collapse=timestamp%3A8" in url or "collapse=timestamp:8" in url
+
+
+def test_build_cdx_url_collapse_rejects_unknown_field():
+    with pytest.raises(ValueError, match="collapse"):
+        _build_cdx_url(
+            "x.com/", from_year=None, to_year=None, limit=1, match_type="prefix",
+            collapse="bogusfield",
+        )
+
+
+def test_build_cdx_url_collapse_rejects_unknown_field_with_n():
+    with pytest.raises(ValueError, match="collapse field"):
+        _build_cdx_url(
+            "x.com/", from_year=None, to_year=None, limit=1, match_type="prefix",
+            collapse="bogus:8",
+        )
+
+
+def test_build_cdx_url_collapse_rejects_non_int_n():
+    with pytest.raises(ValueError, match="collapse N"):
+        _build_cdx_url(
+            "x.com/", from_year=None, to_year=None, limit=1, match_type="prefix",
+            collapse="timestamp:abc",
+        )
+
+
+def test_build_cdx_url_collapse_rejects_zero_n():
+    with pytest.raises(ValueError, match="collapse N"):
+        _build_cdx_url(
+            "x.com/", from_year=None, to_year=None, limit=1, match_type="prefix",
+            collapse="timestamp:0",
+        )
+
+
+# ---------------------------------------------------------------------------
 # _parse_cdx_response
 # ---------------------------------------------------------------------------
 
