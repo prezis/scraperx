@@ -36,7 +36,7 @@ jobs:
         run: pytest -v
 
       - name: Install optional extras
-        run: pip install "imagehash>=4.3" "Pillow>=10.0" "beautifulsoup4>=4.12"
+        run: pip install "imagehash>=4.3" "Pillow>=10.0" "beautifulsoup4>=4.12" "scrapling[fetchers]>=0.5" "markdownify>=1.2.0"
 
       - name: Test (with extras)
         run: pytest -v

@@ -46,8 +46,12 @@ from .scrapling_stealth import (
     StealthSessionHandle,
     fetch_stealth,
     fetch_stealth_session,
+    fetch_stealth_xhr,
     stealth_session,
 )
+from .adaptive_select import parse as adaptive_parse
+from .site_crawl import CrawlOutcome, crawl
+from .page_markdown import MarkdownUnavailable, fetch_markdown, html_to_markdown
 from .fingerprint_audit import (
     CurlCffiNotAvailable,
     Diagnosis403,
@@ -105,7 +109,7 @@ from .social_db import SocialDB
 from .thread import Thread, get_thread
 from .token_extractor import TokenMention, extract_token_mentions
 
-__version__ = "1.11.1"
+__version__ = "1.12.0"
 
 __all__ = [
     "AvatarMatcher",
@@ -175,6 +179,13 @@ __all__ = [
     "fetch_any_video_transcript",
     "fetch_stealth",
     "fetch_stealth_session",
+    "fetch_stealth_xhr",
+    "crawl",
+    "CrawlOutcome",
+    "fetch_markdown",
+    "html_to_markdown",
+    "MarkdownUnavailable",
+    "adaptive_parse",
     "stealth_session",
     "StealthPageResult",
     "StealthSessionHandle",

@@ -128,6 +128,38 @@ def _decode_body(page: Any) -> str:
     return str(body_bytes)
 
 
+def _has_network_history() -> bool:
+    """True on scrapling >= 0.5, where ``capture_xhr`` is GONE and traffic is read from ``session.network``.
+
+    Feature-detected (the recorder module exists), not version-parsed. On 0.5 passing ``capture_xhr`` raises
+    ``TypeError("capture_xhr was removed; use record_requests=True and session.network.")``; on 0.4.x the opposite
+    holds. Module-level on purpose: tests monkeypatch this one name to exercise both worlds.
+    """
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("scrapling.engines._browsers._network") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+_XHR_TYPES = ("xhr", "fetch")
+
+
+def _network_xhr(session: Any, pattern: str, after_id: int = 0) -> list[Any]:
+    """XHR/fetch responses recorded by a 0.5 session whose URL matches ``pattern`` (re.search).
+
+    ``record_requests`` records EVERY completed request (images, css, ...); the old ``capture_xhr`` only kept
+    XHR/fetch, so keep that contract: filter on the recorded ``resource_type``. ``after_id`` lets a long session
+    ask only for what the LAST fetch produced (the recorder's ids never repeat).
+    """
+    net = getattr(session, "network", None)
+    if net is None:
+        return []
+    found = net.search(url_pattern=pattern, after_id=after_id, limit=None)
+    return [r for r in found if (getattr(r, "meta", None) or {}).get("resource_type") in _XHR_TYPES]
+
+
 def _build_stealth_kwargs(
     *,
     timeout: int,
@@ -175,7 +207,12 @@ def _build_stealth_kwargs(
     if page_action is not None:
         kwargs["page_action"] = page_action
     if capture_xhr is not None:
-        kwargs["capture_xhr"] = capture_xhr
+        if _has_network_history():
+            # scrapling >= 0.5: capture_xhr was removed (TypeError). Record traffic instead; the caller
+            # filters it with _network_xhr(session, pattern) after the fetch.
+            kwargs["record_requests"] = True
+        else:
+            kwargs["capture_xhr"] = capture_xhr
     if wait_selector is not None:
         kwargs["wait_selector"] = wait_selector
     if extra_kwargs:
@@ -341,6 +378,29 @@ def fetch_stealth_xhr(
         extra_kwargs=extra_kwargs,
     )
 
+    if _has_network_history():
+        # 0.5: the one-shot StealthyFetcher.fetch builds and closes its own session, so the recorded history is
+        # unreachable from here. Drive the session ourselves (what the one-shot does internally) and read
+        # session.network before closing. inject_selector_config=True: a raw session gets selector_config == {}.
+        kwargs = _build_stealth_kwargs(
+            timeout=timeout, solve_cloudflare=solve_cloudflare, headless=headless,
+            network_idle=network_idle, wait_ms=wait_ms, page_action=page_action,
+            capture_xhr=xhr_pattern, wait_selector=wait_selector, extra_kwargs=extra_kwargs,
+            inject_selector_config=True,
+        )
+        StealthySession = _get_stealthy_session()
+        logger.debug("scrapling_stealth_xhr (network history) fetching %s with kwargs=%s", url, kwargs)
+        session = StealthySession(**kwargs)
+        session.start()
+        try:
+            page = session.fetch(url)
+            content = _decode_body(page)
+            status = getattr(page, "status", None)
+            captured = _network_xhr(session, xhr_pattern)
+        finally:
+            session.close()
+        return content, status, captured
+
     logger.debug("scrapling_stealth_xhr fetching %s with kwargs=%s", url, kwargs)
     page = StealthyFetcher.fetch(url, **kwargs)
 
@@ -411,6 +471,8 @@ class StealthSessionHandle:
     def __init__(self, session: Any, *, capture_xhr: Optional[str] = None) -> None:
         self._session = session
         self._capture_xhr = capture_xhr
+        # 0.5 path: XHRs come from session.network, not from a per-page attribute.
+        self._net_mode = bool(capture_xhr) and _has_network_history()
         self._stats = {"fetches": 0, "failures": 0, "restarts": 0}
 
     @property
@@ -440,10 +502,29 @@ class StealthSessionHandle:
                 "fetch_xhr() needs capture_xhr=<pattern> passed to stealth_session(). "
                 "The pattern is session-scoped upstream; it cannot be set per URL."
             )
+        if self._net_mode:
+            net = getattr(self._session, "network", None)
+            mark = int(getattr(net, "last_id", 0) or 0)  # ids never repeat: ask only for THIS fetch's traffic
+            content, status = self.fetch(url)
+            return content, status, _network_xhr(self._session, self._capture_xhr, after_id=mark)
         content, status = self.fetch(url)
         page = getattr(self._session, "_last_page", None)
         captured = list(getattr(page, "captured_xhr", []) or []) if page else []
         return content, status, captured
+
+    def save_state(self, path: str) -> None:
+        """Save cookies + localStorage + IndexedDB (Playwright JSON). scrapling >= 0.5; a login survives the process."""
+        fn = getattr(self._session, "save_state", None)
+        if fn is None:
+            raise RuntimeError("save_state needs scrapling>=0.5 (this install has no session.save_state)")
+        fn(path)
+
+    def load_state(self, path: str) -> None:
+        """Restore a state file written by save_state(). Needs a started shared context and no proxy_rotator."""
+        fn = getattr(self._session, "load_state", None)
+        if fn is None:
+            raise RuntimeError("load_state needs scrapling>=0.5 (this install has no session.load_state)")
+        fn(path)
 
     def _restart(self) -> None:
         """close() + start() the SAME object — legal, and cheap now.

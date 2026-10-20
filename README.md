@@ -5,13 +5,13 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/prezis/scraperx/actions/workflows/ci.yml/badge.svg)](https://github.com/prezis/scraperx/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.11.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.12.0-informational.svg)](CHANGELOG.md)
 
 ScraperX fetches social-media posts, transcribes videos, and verifies authenticity — without API keys or account credentials. Built on stdlib, with optional extras for perceptual image hashing, web scraping helpers, and GPU-accelerated speech-to-text.
 
 > **Status: beta.** Core functionality is stable — **923 tests, fully offline** (as of 1.9.0 the
 > suite no longer talks to the internet; it used to, silently, and that had been failing CI since
-> 2026-07-17). Newest in **1.11.0**: **the cascade LEARNS which leg works, per host** — on a
+> 2026-07-17). Newest in **1.12.0**: **Scrapling wired in properly** (spider crawler, sanitised Markdown, adaptive selectors, scrapling-0.5 XHR capture; see [docs/SCRAPLING.md](docs/SCRAPLING.md)). Previously, in **1.11.0**: **the cascade LEARNS which leg works, per host** — on a
 > walled site it stops re-trying the three legs that always 403 and goes straight to the one that
 > works. 1.10.0 added `stealth_session()` (N URLs on ONE browser, ~50% faster, measured); 1.9.0
 > made the *cookie* persist. 1.8.0 brought the Cloudflare-bypass leg, no-login Reddit, frame-OCR
@@ -762,7 +762,7 @@ Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup + t
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Current: **1.3.0** (2026-04-17).
+See [CHANGELOG.md](CHANGELOG.md). Current: **1.12.0** (2026-10-20).
 
 ## Security
 
@@ -995,3 +995,24 @@ Use it before concluding that a site is walled. A surprising share of "walled"
 verdicts are a local defect: on 2026-08-02 a consumer's stealth call had never
 executed once (missing required argument, swallowed `TypeError`) while logging a
 line indistinguishable from a Cloudflare block.
+
+## Scrapling in scraperx (1.12.0+)
+
+[Scrapling](https://github.com/D4Vinci/Scrapling) is the engine under the hard-web legs. What scraperx exposes of it, and
+what it deliberately does not, is a generated table: [docs/SCRAPLING.md](docs/SCRAPLING.md) (`python -m scraperx.scrapling_caps`).
+
+```python
+from scraperx import crawl, fetch_markdown, adaptive_parse
+
+out = crawl("https://example.com", fields={"title": "h1::text", "links[]": "a::attr(href)"}, max_pages=20)
+out.items, out.stats, out.refused           # refused = links the SSRF guard blocked
+
+md = fetch_markdown("https://example.com/post", stealth=False)   # sanitised: hidden text and scripts removed
+
+page = adaptive_parse(html, url="https://shop.example/list")     # selectors that survive a redesign
+page.css(".price", auto_save=True)           # learn once ...
+page.css(".price", adaptive=True)            # ... relocate after the markup changes
+```
+
+Install: `pip install 'scraperx[crawl]'` (spiders), `'scraperx[markdown]'`, `'scraperx[stealth]'` (browser) and `scrapling install`
+for the Chromium. After any Scrapling upgrade: `pytest` and `python tests/live/scrapling_live_probe.py`.

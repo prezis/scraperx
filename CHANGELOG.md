@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] — 2026-10-20
+
+### Added — Scrapling, wired in properly (see `docs/SCRAPLING.md`)
+
+Scrapling 0.5 (2026-10-17) made breaking changes, and an audit of what scraperx actually used of it found
+that most of Scrapling was not reachable at all. This release closes that, and makes scraperx *remember* it.
+
+* **`scraperx.site_crawl.crawl()`** (exported as `scraperx.crawl`): Scrapling's Spider framework behind guard
+  rails: SSRF check on every start URL AND every followed link, same-domain by default, a hard page budget counted
+  at schedule time, robots.txt + AutoThrottle on, runs from sync code and from inside a running event loop,
+  optional stealth browser / proxy rotation / pause-resume checkpoints / any Scrapling spider template via `spider_cls=`.
+* **`scraperx.page_markdown`** (`html_to_markdown`, `fetch_markdown`): sanitised, LLM-ready Markdown. Adds a scraperx
+  pass for hiding tricks Scrapling 0.5 keeps (`hidden` attribute, `left:-9999px`, negative `text-indent`, clip, scale(0)).
+* **`scraperx.adaptive_select.parse`** (`scraperx.adaptive_parse`): Scrapling's adaptive selectors (learn an element,
+  relocate it after a redesign). Memory is one SQLite file per host.
+* **`StealthSessionHandle.save_state/load_state`**: log in once, reuse the login across runs (0.5).
+* **`scraperx.scrapling_caps`** + generated **`docs/SCRAPLING.md`**: every Scrapling feature with its status, entry point
+  and note, plus `check_upstream()` that reports public symbols upstream added or removed. Tests turn drift into red.
+* `tests/live/scrapling_live_probe.py`: a real Chromium against a local site, 25 checks (run it by hand after upgrades).
+* New extras: `crawl`, `markdown`.
+
+### Fixed — would have broken on the first `pip install -U scrapling`
+
+* `fetch_stealth_xhr` and `StealthSessionHandle.fetch_xhr` used `capture_xhr`, which Scrapling 0.5 deleted (it now raises
+  `TypeError`). They now use `record_requests=True` + `session.network` on 0.5 and keep `capture_xhr` on 0.4.x, switched by
+  feature detection, with the same return contract. XHR/fetch only (images are not returned), and a session returns only
+  the LAST fetch's traffic. Verified live in a real Chromium.
+* The pin `scrapling[fetchers]>=0.4.12` has no upper bound by design: both generations are supported and tested.
+  (The repo `.venv` actually held 0.4.8, below the declared floor; it now runs 0.5.)
+
+### Upstream quirks found and neutralised (measured, documented in the code)
+
+* Spider `allowed_domains` is compared with `host:port`: on any non-default port every link was counted offsite and the
+  crawl stopped after the start page. `crawl()` passes both forms.
+* Adaptive-selector memory collapses all hosts without a public TLD (`localhost`, IPs, `.internal`) into one key.
+
+### Docs
+
+* README: version badge and the stale "Current: 1.3.0" line corrected; `smart_fetch`'s `adaptive=` (cascade ranking) is
+  now explicitly distinguished from Scrapling's adaptive selectors, which it was never related to.
+
 ## [1.11.1] — 2026-09-15
 
 ### Fixed — both browser legs were unreachable from every async caller
