@@ -15,7 +15,7 @@ import pytest
 pytest.importorskip("scrapling.fetchers")
 sp = pytest.importorskip("scrapling.spiders")
 if not hasattr(sp.Spider, "autothrottle_enabled"):
-    pytest.skip("crawl() needs scrapling>=0.5", allow_module_level=True)
+    pytest.skip("crawl() needs a Spider with AutoThrottle + robots.txt", allow_module_level=True)
 
 import scraperx.site_crawl as crawl_mod  # noqa: E402
 from scraperx.site_crawl import crawl  # noqa: E402
@@ -113,7 +113,7 @@ def test_refuses_to_run_an_impolite_crawl_on_old_scrapling(monkeypatch):
         Spider = OldSpider
 
     monkeypatch.setattr(crawl_mod, "_scrapling_spiders", lambda: OldModule)
-    with pytest.raises(ScraplingNotAvailable, match="scrapling>=0.5"):
+    with pytest.raises(ScraplingNotAvailable, match="AutoThrottle"):
         crawl("https://example.com")
 
 

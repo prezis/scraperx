@@ -134,7 +134,7 @@ def crawl(
     sp = _scrapling_spiders()
     if not hasattr(sp.Spider, "autothrottle_enabled") or not hasattr(sp.Spider, "robots_txt_obey"):
         # Silently ignoring autothrottle/robots would make a "polite" crawl impolite. Refuse instead.
-        raise ScraplingNotAvailable("crawl() needs scrapling>=0.5 (AutoThrottle + robots.txt support): pip install -U 'scraperx[crawl]'")
+        raise ScraplingNotAvailable("crawl() needs a Scrapling Spider with AutoThrottle + robots.txt support (0.4.12 and 0.5 have it): pip install -U 'scraperx[crawl]'")
     urls = [start_urls] if isinstance(start_urls, str) else list(start_urls)
 
     refused: list[str] = []

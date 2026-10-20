@@ -87,7 +87,7 @@ CAPABILITIES: tuple[Capability, ...] = (
     # ---- crawling ----------------------------------------------------------------------------------------
     Capability("spider-framework", "crawl", "Spider: concurrency, per-domain limits, multi-session, blocked-request retry, pause/resume checkpoints",
                WIRED, "scraperx.site_crawl:crawl", "scrapling.spiders:Spider",
-               "crawl() adds the guard rails: SSRF check on every link, same-domain default, hard page budget. Needs scrapling>=0.5."),
+               "crawl() adds the guard rails: SSRF check on every link, same-domain default, hard page budget. Needs a Spider with AutoThrottle + robots.txt (0.4.12 and 0.5 have it; crawl() refuses otherwise)."),
     Capability("polite-crawling", "crawl", "AutoThrottle, robots.txt (Crawl-delay, Request-rate), download_delay",
                WIRED, "scraperx.site_crawl:crawl", None, "On by default in crawl(): autothrottle=True, obey_robots=True."),
     Capability("crawl-templates", "crawl", "CrawlSpider, SitemapSpider, XMLFeedSpider, CSVFeedSpider, ShopifySpider, ContentSpider (rules, sitemaps, feeds)",
@@ -213,7 +213,7 @@ def _version_tuple(v: str | None) -> tuple[int, ...]:
 def check_upstream() -> dict[str, Any]:
     """Compare the installed scrapling with this registry. Pure introspection, no network."""
     ver = installed_version()
-    res: dict[str, Any] = {"version": ver, "installed": ver is not None, "scraperx_unresolved": [], "upstream_missing": [], "new_public": []}
+    res: dict[str, Any] = {"version": ver, "installed": ver is not None, "scraperx_unresolved": [], "upstream_missing": [], "new_public": [], "absent_on_older_install": []}
     if ver is None:
         return res
     for cap in CAPABILITIES:
@@ -226,7 +226,10 @@ def check_upstream() -> dict[str, Any]:
             try:
                 _resolve(cap.upstream)
             except Exception as e:  # noqa: BLE001
-                res["upstream_missing"].append(f"{cap.key}: {cap.upstream} ({type(e).__name__})")
+                # The registry was reviewed against 0.5. An OLDER scrapling legitimately lacks newer symbols
+                # (0.4.12 has no SiteToMarkdownSpider): report that, but only a >=0.5 install can "lose" one.
+                bucket = "upstream_missing" if _version_tuple(ver) >= (0, 5) else "absent_on_older_install"
+                res.setdefault(bucket, []).append(f"{cap.key}: {cap.upstream} ({type(e).__name__})")
     if _version_tuple(ver) >= (0, 5) and KNOWN_PUBLIC:
         for m in _WATCHED:
             now, known = _public(m), set(KNOWN_PUBLIC.get(m, []))
@@ -279,11 +282,11 @@ def main(argv: list[str] | None = None) -> int:
         counts[c.status] = counts.get(c.status, 0) + 1
     print(f"scrapling installed: {res['version'] or 'NO'}")
     print("capabilities: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-    for k in ("scraperx_unresolved", "upstream_missing", "new_public"):
+    for k in ("scraperx_unresolved", "upstream_missing", "new_public", "absent_on_older_install"):
         print(f"{k}: {len(res[k])}")
         for x in res[k]:
             print("  -", x)
-    return 1 if (res["scraperx_unresolved"] or res["upstream_missing"] or res["new_public"]) else 0
+    return 1 if (res["scraperx_unresolved"] or res["upstream_missing"] or res["new_public"]) else 0  # absent_on_older_install is informational
 
 
 if __name__ == "__main__":
