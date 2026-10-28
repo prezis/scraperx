@@ -79,6 +79,17 @@ def test_plugin_copy_and_project_install_are_found(tmp_path):
     assert si.skill_status(home=home, project=proj).installed == "project"
 
 
+def test_claude_config_dir_is_honoured(tmp_path, monkeypatch):
+    cfg = tmp_path / "cc"
+    cached = cfg / "plugins" / "cache" / "scraperx" / "scraperx" / "1.13.0" / "scraperx" / "skills" / "scraperx"
+    cached.mkdir(parents=True)
+    (cached / "SKILL.md").write_bytes(SKILL.read_bytes())
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    st = si.skill_status()
+    assert (st.claude_code, st.installed, st.up_to_date) == (True, "plugin", True)
+    assert si.install_skill() == cfg / "skills" / "scraperx" / "SKILL.md"
+
+
 def test_hint_once_a_day_and_silenceable(tmp_path, monkeypatch):
     monkeypatch.delenv("SCRAPERX_NO_SKILL_HINT", raising=False)
     home = tmp_path

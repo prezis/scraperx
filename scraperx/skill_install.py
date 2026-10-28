@@ -34,6 +34,10 @@ def packaged_skill_path() -> Path:
 
 
 def _claude_home(home: Path | None = None) -> Path:
+    """Claude Code's config directory: CLAUDE_CONFIG_DIR when set (and no explicit home), else ~/.claude."""
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env and home is None:
+        return Path(env).expanduser()
     return (home or Path.home()) / ".claude"
 
 
