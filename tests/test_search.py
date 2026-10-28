@@ -1,15 +1,30 @@
 """Tests for scraperx.search module."""
 
+import logging
 from unittest.mock import patch
+from urllib.error import HTTPError
 
+import pytest
+
+from scraperx import search as search_mod
 from scraperx.scraper import Tweet
 from scraperx.search import (
+    _brave_query,
+    _brave_search,
     _cache_key,
+    _ddg_search,
     _extract_tweet_urls,
     _get_cached,
     _set_cache,
     search_tweets,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_brave_key(monkeypatch):
+    """No test reads a real Brave key from the machine it runs on; a test that needs one sets it."""
+    for name in ("SCRAPERX_BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
 
 # --- HTML extraction tests ---
 
@@ -155,3 +170,114 @@ def test_search_tweets_error_handling(tmp_path):
 
             results = search_tweets("errors", limit=2, delay=0)
             assert len(results) == 2  # Skipped error, got 2 good ones
+
+
+# --- Brave Search API backend (mocked; response shape per the Brave web-search docs: web.results[].url) ---
+
+
+def _brave_page(urls, more=False):
+    return {
+        "type": "search",
+        "query": {"more_results_available": more},
+        "web": {"type": "search", "results": [{"title": "t", "url": u, "description": "d"} for u in urls]},
+    }
+
+
+def test_brave_query_from_user_becomes_a_site_path():
+    assert _brave_query("from:alice pump.fun") == "site:x.com/alice pump.fun"
+    assert _brave_query("from:@Bob_1") == "site:x.com/Bob_1"
+    assert _brave_query("pump.fun") == "site:x.com pump.fun"
+    assert _brave_query('site:x.com "exact phrase"') == 'site:x.com "exact phrase"'
+
+
+def test_brave_search_reads_web_results_and_maps_freshness(tmp_path, monkeypatch):
+    seen = []
+
+    def fake_get(params, key, timeout=15):
+        seen.append((params, key))
+        return _brave_page([
+            "https://x.com/Alice/status/111",
+            "https://x.com/Polymarket",
+            "https://twitter.com/Bob/status/222",
+            "https://x.com/Alice/status/111",
+        ])
+
+    monkeypatch.setattr(search_mod, "_brave_get", fake_get)
+    with patch("scraperx.search._CACHE_DIR", tmp_path):
+        urls = _brave_search("pump.fun", max_results=10, time_filter="w", key="k-test")
+    assert urls == ["https://x.com/Alice/status/111", "https://x.com/Bob/status/222"]  # profile and duplicate dropped
+    assert len(seen) == 1  # no more_results_available: one call
+    params, key = seen[0]
+    assert key == "k-test" and params["q"] == "site:x.com pump.fun" and params["freshness"] == "pw"
+    assert params["count"] == 20 and params["offset"] == 0
+
+
+def test_brave_search_stops_at_the_page_cap(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_get(params, key, timeout=15):
+        calls.append(params["offset"])
+        return _brave_page([f"https://x.com/U/status/{params['offset']}{i}" for i in range(3)], more=True)
+
+    monkeypatch.setattr(search_mod, "_brave_get", fake_get)
+    with patch("scraperx.search._CACHE_DIR", tmp_path):
+        urls = _brave_search("anything", max_results=50, key="k")
+    assert calls == list(range(search_mod._BRAVE_MAX_PAGES))
+    assert len(urls) == 3 * search_mod._BRAVE_MAX_PAGES
+
+
+def test_brave_without_a_key_makes_no_call(tmp_path, monkeypatch):
+    monkeypatch.setattr(search_mod, "_brave_get", lambda *a, **k: pytest.fail("called without a key"))
+    with patch("scraperx.search._CACHE_DIR", tmp_path):
+        assert _brave_search("anything") == []
+
+
+def test_auto_prefers_brave_when_a_key_is_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPERX_BRAVE_API_KEY", "k")
+    monkeypatch.setattr(search_mod, "_brave_get", lambda params, key, timeout=15: _brave_page(["https://x.com/Alice/status/111"]))
+    monkeypatch.setattr(search_mod, "_ddg_search", lambda *a, **k: pytest.fail("DDG asked although Brave answered"))
+    with patch("scraperx.search._CACHE_DIR", tmp_path):
+        results = search_tweets("pump.fun", limit=1, enrich=False)
+    assert [(t.id, t.author_handle, t.source_method) for t in results] == [("111", "Alice", "brave_stub")]
+
+
+def test_auto_falls_back_to_ddg_when_brave_refuses(tmp_path, monkeypatch):
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "bad")
+
+    def refuse(params, key, timeout=15):
+        raise HTTPError("https://api.search.brave.com", 401, "Unauthorized", None, None)
+
+    monkeypatch.setattr(search_mod, "_brave_get", refuse)
+    with patch("scraperx.search._CACHE_DIR", tmp_path), patch("scraperx.search._ddg_search_urllib", return_value=SAMPLE_DDG_HTML):
+        results = search_tweets("fallback", limit=2, enrich=False)
+    assert [t.source_method for t in results] == ["ddg_stub", "ddg_stub"]
+
+
+def test_backend_brave_without_a_key_raises(tmp_path):
+    with patch("scraperx.search._CACHE_DIR", tmp_path), pytest.raises(RuntimeError, match="SCRAPERX_BRAVE_API_KEY"):
+        search_tweets("x", backend="brave")
+
+
+def test_backend_ddg_never_asks_brave(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPERX_BRAVE_API_KEY", "k")
+    monkeypatch.setattr(search_mod, "_brave_get", lambda *a, **k: pytest.fail("Brave asked with backend=ddg"))
+    with patch("scraperx.search._CACHE_DIR", tmp_path), patch("scraperx.search._ddg_search_urllib", return_value=SAMPLE_DDG_HTML):
+        assert len(search_tweets("ddg only", limit=2, enrich=False, backend="ddg")) == 2
+
+
+def test_unknown_backend_is_refused():
+    with pytest.raises(ValueError, match="backend"):
+        search_tweets("x", backend="google")
+
+
+def test_ddg_bot_check_page_is_named_not_read_as_no_results(tmp_path, caplog):
+    block = "<html><body><form id='challenge-form'>bots use DuckDuckGo too</form></body></html>"
+    with (
+        patch("scraperx.search._CACHE_DIR", tmp_path),
+        patch("scraperx.search._ddg_search_urllib", return_value=block),
+        patch("scraperx.search._ddg_search_curl", return_value=block),
+        caplog.at_level(logging.WARNING, logger="scraperx.search"),
+    ):
+        assert _ddg_search("blocked query") == []
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("bot-check page" in m and "SCRAPERX_BRAVE_API_KEY" in m for m in msgs)

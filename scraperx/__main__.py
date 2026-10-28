@@ -94,11 +94,20 @@ def main():
 
 
 def _main_search():
-    parser = argparse.ArgumentParser(prog="scraperx search", description="Search tweets via DuckDuckGo + FxTwitter")
+    parser = argparse.ArgumentParser(
+        prog="scraperx search",
+        description="Search tweets: Brave Search API (when SCRAPERX_BRAVE_API_KEY is set) or DuckDuckGo, then FxTwitter",
+    )
     parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "search"
     parser.add_argument("query", nargs="+", help="Search query")
     parser.add_argument("--limit", "-n", type=int, default=10, help="Max results (default: 10)")
     parser.add_argument("--time", "-t", choices=["d", "w", "m", "y"], help="Time filter")
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "brave", "ddg"],
+        default="auto",
+        help="auto = Brave if a key is set, DuckDuckGo after it (default); brave = Brave only; ddg = DuckDuckGo only",
+    )
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--fast", action="store_true", help="Skip enrichment")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
@@ -475,6 +484,7 @@ def _handle_search(args):
             limit=args.limit,
             time_filter=getattr(args, "time", None),
             enrich=not args.fast,
+            backend=getattr(args, "backend", "auto"),
         )
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
