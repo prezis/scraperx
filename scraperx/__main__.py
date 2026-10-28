@@ -15,6 +15,7 @@ Usage:
 import argparse
 import json
 import logging
+import re
 import sys
 
 from scraperx.video_discovery import discover_videos
@@ -38,7 +39,33 @@ def _is_profile_url(url: str) -> bool:
     return bool(PROFILE_URL_RE.search(url))
 
 
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+class _SafeTerminal:
+    """Scraped text is untrusted: an ANSI / OSC escape inside a post, comment or transcript could rewrite the reader's
+    terminal (title, clipboard, screen). Everything the CLI prints loses its C0 / C1 control characters except
+    newline and tab. JSON output is unaffected: json.dumps already writes them as \\u escapes."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def write(self, text):
+        return self._stream.write(_CONTROL_RE.sub("", text))
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _guard_terminal() -> None:
+    if not isinstance(sys.stdout, _SafeTerminal):
+        sys.stdout = _SafeTerminal(sys.stdout)
+    if not isinstance(sys.stderr, _SafeTerminal):
+        sys.stderr = _SafeTerminal(sys.stderr)
+
+
 def main():
+    _guard_terminal()
     # Check if first arg is a subcommand
     if len(sys.argv) > 1:
         subcmd = sys.argv[1]

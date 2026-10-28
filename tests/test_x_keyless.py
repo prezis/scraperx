@@ -285,6 +285,21 @@ def test_cli_x_user_json(monkeypatch, capsys):
     assert out[0]["url"] == "https://x.com/demo/status/2115454791921152201" and out[0]["views"] == 1001
 
 
+def test_cli_strips_terminal_escapes_from_scraped_text(monkeypatch, capsys):
+    import sys
+
+    from scraperx import __main__ as cli
+
+    evil = _status(1)
+    evil["text"] = "hi \x1b]0;pwned\x07there \x1b[2Jend\r\x9b"
+    monkeypatch.setattr(x_timeline, "_get_json", lambda path, params, timeout=30: {"results": [evil], "cursor": {}})
+    monkeypatch.setattr(sys, "argv", ["scraperx", "x", "user", "demo", "-n", "1"])
+    cli.main()
+    out = capsys.readouterr().out
+    assert "\x1b" not in out and "\x07" not in out and "\x9b" not in out and "\r" not in out
+    assert "hi ]0;pwnedthere [2Jend" in out
+
+
 @pytest.mark.skipif(os.environ.get("SCRAPERX_LIVE") != "1", reason="live network; SCRAPERX_LIVE=1 to run")
 def test_live_keyless_x():
     tl = x_timeline.get_user_tweets("solana", limit=25)

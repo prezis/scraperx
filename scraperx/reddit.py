@@ -492,6 +492,10 @@ _REDLIB_COMMENTS_LINK_RE = re.compile(
 )
 _REDLIB_CREATED_HREF_RE = re.compile(r'<a\s+href="([^"]+)"[^>]*class="created"', re.IGNORECASE)
 _PERMALINK_SUB_RE = re.compile(r"^/r/([A-Za-z0-9_]+)/")
+# redlib's pager: <a href="?sort=hot&amp;t=&amp;after=t3_1xfra3o" accesskey="N">NEXT</a> on listings, after=24 (an
+# offset) on search pages (2026-10-28).
+_REDLIB_NEXT_AFTER_RE = re.compile(r'<a href="[^"]*?[?&;]after=([A-Za-z0-9_]+)[^"]*"\s+accesskey="N"', re.IGNORECASE)
+_MAX_MIRROR_PAGES = 4
 _REDLIB_TIME_FMT = "%b %d %Y, %H:%M:%S UTC"
 _BLOCK_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|li|h[1-6]|pre|blockquote|tr)>", re.IGNORECASE)
 
@@ -940,29 +944,43 @@ class RedditScraper:
     def _clamp_limit(limit: int) -> int:
         return max(1, min(int(limit), _MAX_LIMIT))
 
+    def _mirror_pages(self, fetch: Callable[[str], str], html_path: str, limit: int, tier: str) -> list[RedditPost]:
+        """Mirror listing pages (25 posts each) followed through redlib's NEXT link (``after=``) until `limit`,
+        the last page, or a page that adds nothing. Every page is a separate fetch (~10 s through the browser)."""
+        posts: list[RedditPost] = []
+        seen: set[str] = set()
+        path = html_path
+        for _page in range(_MAX_MIRROR_PAGES):
+            html = fetch(path)
+            new = [p for p in _parse_redlib_listing_html(html, tier=tier) if p.id not in seen]
+            seen.update(p.id for p in new)
+            posts.extend(new)
+            after = _first(_REDLIB_NEXT_AFTER_RE, html)
+            if not new or not after or len(posts) >= limit:
+                break
+            base = re.sub(r"[?&]after=[^&]*", "", html_path)
+            path = f"{base}{'&' if '?' in base else '?'}after={after}"
+        if not posts:
+            raise RedditError("parsed 0 posts")
+        return posts[:limit]
+
     def _posts_ladder(
         self, path: str, params: dict[str, Any], html_path: str, limit: int, desc: str
     ) -> list[RedditPost]:
         """The four post-list legs (old.reddit JSON, mirror HTML, stealth JSON, stealth mirror HTML).
-        Mirror pages hold 25 posts, so a limit above 25 returns at most 25 from those tiers."""
+        Mirror pages hold 25 posts; a larger limit follows their NEXT links (one more fetch per 25)."""
 
         def _leg_old_json() -> list[RedditPost]:
             return _parse_listing(self._tier1_json(path, params), tier="old_json")[:limit]
 
         def _leg_redlib() -> list[RedditPost]:
-            posts = _parse_redlib_listing_html(self._tier2_html(html_path))
-            if not posts:
-                raise RedditError("parsed 0 posts")
-            return posts[:limit]
+            return self._mirror_pages(self._tier2_html, html_path, limit, "redlib")
 
         def _leg_stealth() -> list[RedditPost]:
             return _parse_listing(self._tier3_stealth_json(path, params), tier="stealth")[:limit]
 
         def _leg_stealth_mirror() -> list[RedditPost]:
-            posts = _parse_redlib_listing_html(self._tier3_stealth_mirror_html(html_path), tier="stealth_mirror")
-            if not posts:
-                raise RedditError("parsed 0 posts")
-            return posts[:limit]
+            return self._mirror_pages(self._tier3_stealth_mirror_html, html_path, limit, "stealth_mirror")
 
         return self._run_tier_ladder(
             {

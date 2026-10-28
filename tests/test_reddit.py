@@ -554,6 +554,28 @@ def test_thread_on_a_mirror_keeps_the_trailing_slash(monkeypatch):
     assert thread.post.permalink == "/r/demo/comments/bbb222/is_this_a_rug" and len(thread.comments) == 5
 
 
+def test_mirror_listing_follows_next_pages(monkeypatch):
+    page1 = _fixture("listing.html").replace(
+        "</main>", '<footer><a href="?sort=hot&amp;t=&amp;after=t3_ccc333" accesskey="N">NEXT</a></footer></main>'
+    )
+    page2 = _fixture("listing.html").replace("aaa111", "ddd444").replace("bbb222", "eee555").replace("ccc333", "fff666")
+    seen: list[str] = []
+
+    def fake(url, *, user_agent, timeout):
+        seen.append(url)
+        if "old.reddit.com" in url:
+            return 403, ""
+        return 200, page2 if "after=t3_ccc333" in url else page1
+
+    monkeypatch.setattr(reddit_mod, "_http_get", fake)
+    s = _scraper(mirrors=("https://m1.example",), enable_stealth=False, adaptive_tiers=False)
+    posts = s.get_subreddit_posts("demo", sort="hot", limit=5)
+    assert [p.id for p in posts] == ["aaa111", "bbb222", "ccc333", "ddd444", "eee555"]
+    assert seen[-1] == "https://m1.example/r/demo/hot?after=t3_ccc333"
+    s.search("rug", limit=3)  # one page is enough: no second fetch
+    assert sum("/search?" in u for u in seen) == 1
+
+
 def test_tier1_success_names_no_mirror(monkeypatch):
     monkeypatch.setattr(reddit_mod, "_http_get", _fake_http([(200, json.dumps(SEARCH_JSON))]))
     s = _scraper()
