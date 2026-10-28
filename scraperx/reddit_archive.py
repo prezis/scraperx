@@ -23,6 +23,7 @@ posting held score 1 (live: 5) and 1 of its 7 comments.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -56,10 +57,8 @@ def _get(path: str, params: dict, timeout: int = 40) -> list[dict]:
             return [x for x in (body.get("data") or []) if isinstance(x, dict)]
         except HTTPError as e:
             detail = ""
-            try:
+            with contextlib.suppress(Exception):
                 detail = json.loads(e.read().decode("utf-8", errors="replace")).get("error") or ""
-            except Exception:
-                pass
             if attempt == 0 and e.code == 422 and "timeout" in detail.lower():
                 time.sleep(3.0)
                 continue
