@@ -174,8 +174,10 @@ _DIV_LABELS_LOOSE_RE = re.compile(
 # Each chip is either a <span class="badge ..."> or <a class="badge ..." href="/accounts/label/..."> ...
 # We capture (full_open_tag, inner_html). The opening tag tells us if it's an
 # anchor (and what its href is); the inner HTML carries the hash-tag span.
+# Issue #21 (2026-10-28): Etherscan now writes the chip tags with SINGLE-quoted class/href while the container keeps
+# double quotes, so every chip pattern accepts both quote styles (non-capturing alternatives keep the group numbers).
 _CHIP_TAG_RE = re.compile(
-    r'<(span|a)([^>]*\bclass="[^"]*\bbadge\s+bg-white\b[^"]*"[^>]*)>(.*?)</\1>',
+    r"""<(span|a)([^>]*\bclass=(?:"[^"]*\bbadge\s+bg-white\b[^"]*"|'[^']*\bbadge\s+bg-white\b[^']*')[^>]*)>(.*?)</\1>""",
     re.IGNORECASE | re.DOTALL,
 )
 # Pull the chip text from the inner <span class="hash-tag">TEXT</span>.
@@ -186,11 +188,14 @@ _CHIP_TAG_RE = re.compile(
 # wrapper span contains a nested hash-tag span. That truncation strips the
 # closing </span> from the inner HTML we get here, so requiring it would fail.
 _HASH_TAG_RE = re.compile(
-    r'<span[^>]*\bclass="[^"]*\bhash-tag\b[^"]*"[^>]*>([^<]*)',
+    r"""<span[^>]*\bclass=(?:"[^"]*\bhash-tag\b[^"]*"|'[^']*\bhash-tag\b[^']*')[^>]*>([^<]*)""",
     re.IGNORECASE | re.DOTALL,
 )
 # Detect a hashtag-anchor chip via its href ("/accounts/label/<word>").
-_HASHTAG_HREF_RE = re.compile(r'\bhref="(?:https?://[^/]+)?/accounts/label/[^"]+"', re.IGNORECASE)
+_HASHTAG_HREF_RE = re.compile(
+    r"""\bhref=(?:"(?:https?://[^/]+)?/accounts/label/[^"]+"|'(?:https?://[^/]+)?/accounts/label/[^']+')""",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -68,6 +68,23 @@ def test_chips_binance_hot_wallet_includes_exchange():
     assert "#Binance" not in chips  # Etherscan does NOT anchor Binance
 
 
+def test_chips_single_quoted_markup_issue_21():
+    """Issue #21: since ~2026-10 Etherscan writes chip tags with SINGLE-quoted class/href (the container stays
+    double-quoted, so it is still found). The parser must read both quote styles: Binance 14 -> ('#Binance', 'Exchange'),
+    the burn address -> ('#Burn',)."""
+    assert extract_chips(_read("binance14_single_quoted.html")) == ("#Binance", "Exchange")
+    assert extract_chips(_read("burn_single_quoted.html")) == ("#Burn",)
+
+
+def test_chips_quote_style_does_not_change_the_result():
+    """Every double-quoted fixture gives the same chips after its chip tags are rewritten to single quotes."""
+    for name in ("coinbase_deposit.html", "gate_deposit.html", "funder.html", "binance_hot_wallet.html", "bscscan_binance.html"):
+        html = _read(name)
+        start = html.find('id="ContentPlaceHolder1_divLabels"')
+        head, body = html[: start + len('id="ContentPlaceHolder1_divLabels"')], html[start + len('id="ContentPlaceHolder1_divLabels"'):]
+        assert extract_chips(head + body.replace('"', "'")) == extract_chips(html), name
+
+
 def test_chips_unlabeled_eoa_returns_empty_tuple():
     chips = extract_chips(_read("unlabeled_eoa.html"))
     assert chips == ()
