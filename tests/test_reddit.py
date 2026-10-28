@@ -452,6 +452,32 @@ def test_a_200_that_is_not_a_redlib_page_moves_to_the_next_mirror(monkeypatch, b
     assert s._mirror_order()[-1] == "https://m1.example"  # cooled down
 
 
+def test_a_mirror_that_keeps_failing_goes_last_in_a_new_process(monkeypatch):
+    from scraperx.method_telemetry import record
+
+    for _ in range(5):
+        record("reddit_mirror_stealth", "https://m1.example", "m1.example", False)
+        record("reddit_mirror_stealth", "https://m2.example", "m2.example", True)
+    s = _scraper(mirrors=("https://m1.example", "https://m2.example", "https://m3.example"))
+    assert s._mirror_order("stealth") == ["https://m2.example", "https://m3.example", "https://m1.example"]
+    assert s._mirror_order("plain") == ["https://m1.example", "https://m2.example", "https://m3.example"]
+
+
+def test_mirror_outcomes_are_recorded_per_access_path(monkeypatch):
+    from scraperx.method_telemetry import method_stats
+
+    def fake(url, *, user_agent, timeout):
+        if "old.reddit.com" in url:
+            return 403, ""
+        return 200, ANUBIS_PAGE if "m1.example" in url else _fixture("listing.html")
+
+    monkeypatch.setattr(reddit_mod, "_http_get", fake)
+    s = _scraper(mirrors=("https://m1.example", "https://m2.example"), enable_stealth=False)
+    s.get_subreddit_posts("demo")
+    stats = method_stats("reddit_mirror_plain")
+    assert stats["https://m1.example"]["successes"] == 0 and stats["https://m2.example"]["successes"] == 1
+
+
 def test_redlib_page_problem_names_the_cause():
     assert reddit_mod._redlib_page_problem(_fixture("listing.html")) is None
     assert reddit_mod._redlib_page_problem(_fixture("thread.html")) is None

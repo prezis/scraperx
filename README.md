@@ -447,7 +447,7 @@ for t in results:
 #   search (keywords, #tag, "exact phrase", from:user, since:) - backend="auto" order:
 #     1. Desearch X Search API  (key: SCRAPERX_DESEARCH_API_KEY; full posts, $0.15 per 1,000 posts)
 #     2. Brave Search API       (key: SCRAPERX_BRAVE_API_KEY; finds URLs, FxTwitter fills them)
-#     3. Nitter search RSS      (no key; public instances, rotated; FxTwitter adds likes/views)
+#     3. Nitter search RSS      (no key; public instances, ranked by their recorded success; FxTwitter adds likes/views)
 #     4. DuckDuckGo HTML        (no key; bot-checks automated queries since 2026-10)
 results = search_tweets('#solana "wallet drained"', limit=10, time_filter="w")   # works with no key at all
 results = search_tweets("from:solana", limit=5, backend="nitter")
@@ -874,7 +874,7 @@ default mirrors served pages through it (9-14 s per page, ~1.1 GB peak RSS for t
 A mirror whose own Reddit fetch fails answers 404 and the next one is tried (safereddit.com did
 that on thread pages while serving listings and search). A mirror page counts as served only when it
 is a redlib page (`#column_one`): a 200 carrying redlib's error page, an Anubis / Cloudflare page or
-anything else moves on to the next mirror. old.reddit.com's `.json` now redirects logged-out clients
+anything else moves on to the next mirror. Each mirror's outcome is recorded in the method-telemetry ledger (separately for plain HTTP and the stealth browser), so a new process tries the mirrors that have been working first instead of always starting on the same one. old.reddit.com's `.json` now redirects logged-out clients
 to its login page (2026-10-28); that is reported by name.
 
 Where a mirror page's time goes (measured 2026-10-28 on redlib.r4fo.com, browser Navigation Timing):

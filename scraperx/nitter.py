@@ -32,10 +32,12 @@ import time
 from email.utils import parsedate_to_datetime
 from html import unescape
 from urllib.error import HTTPError
-from urllib.parse import unquote, urlencode
+from urllib.parse import unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from scraperx.fetch import detect_block_page
+from scraperx.method_telemetry import preferred_order as _preferred_order
+from scraperx.method_telemetry import record as _telemetry_record
 from scraperx.scraper import Tweet
 
 logger = logging.getLogger(__name__)
@@ -77,7 +79,11 @@ def _http_get(url: str, *, timeout: int = 25) -> tuple[int, dict, str]:
         return int(e.code), dict(e.headers or {}), ""
 
 
-def _instances(instances: tuple[str, ...] | None) -> list[str]:
+def _instances(instances: tuple[str, ...] | None, kind: str = "") -> list[str]:
+    """Rotation from the instance after the last one that served, re-ranked by each instance's recorded success for
+    this `kind` of feed ("search" or "user": instances differ, e.g. nitter.netbub.com served user RSS but put search
+    behind a Gandalf challenge, 2026-10-28), so a new process skips instances that keep failing. Equal records keep
+    the rotation; an instance that failed in this process in the last 10 min goes to the back."""
     if instances:
         pool = list(instances)
     else:
@@ -85,6 +91,8 @@ def _instances(instances: tuple[str, ...] | None) -> list[str]:
         pool = env or list(DEFAULT_NITTER_INSTANCES)
     n = len(pool)
     rot = [pool[(_next_start + i) % n] for i in range(n)] if n else []
+    if kind and n > 1:
+        rot = _preferred_order(f"nitter_{kind}", rot)
     now = time.monotonic()
     up = [u for u in rot if _down_until.get(u, 0.0) <= now]
     return up + [u for u in rot if u not in up]
@@ -101,23 +109,33 @@ def _feed(path_and_query: str, timeout: int, instances: tuple[str, ...] | None) 
 
     A valid feed with no items from every responding instance → (instance, headers, xml) of the last one (a genuine
     empty result). Nothing readable anywhere → NitterError naming each instance's reason."""
-    pool = _instances(instances)
+    kind = "search" if path_and_query.startswith("/search") else "user"
+    pool = _instances(instances, kind)
     errors: list[str] = []
     empty: tuple[str, dict, str] | None = None
+
+    def note(inst: str, ok: bool, t0: float, status: int | None) -> None:
+        _telemetry_record(f"nitter_{kind}", inst, urlparse(inst).hostname or inst, ok,
+                          latency_ms=(time.monotonic() - t0) * 1000.0, http_status=status)
+
     for inst in pool:
+        t0 = time.monotonic()
         try:
             status, headers, body = _http_get(f"{inst}{path_and_query}", timeout=timeout)
         except Exception as e:
             _down_until[inst] = time.monotonic() + _COOLDOWN_S
+            note(inst, False, t0, None)
             errors.append(f"{inst}: {type(e).__name__}: {e}")
             continue
         blocked = detect_block_page(body)
         if status != 200 or blocked or "<rss" not in body:
             _down_until[inst] = time.monotonic() + _COOLDOWN_S
+            note(inst, False, t0, status)
             errors.append(f"{inst}: HTTP {status}" + (f" block page: {blocked}" if blocked else ""))
             continue
         if "<item>" in body:
             _served(inst, len(pool), pool)
+            note(inst, True, t0, status)
             logger.info("nitter: served by %s", inst)
             return inst, headers, body
         empty = (inst, headers, body)

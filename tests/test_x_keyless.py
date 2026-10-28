@@ -109,6 +109,27 @@ def test_every_instance_failing_names_each(monkeypatch):
         nitter.search("x", instances=("https://a.example", "https://b.example"))
 
 
+def test_instances_that_keep_failing_go_last_per_feed_kind():
+    from scraperx.method_telemetry import record
+
+    pool = ("https://a.example", "https://b.example", "https://c.example")
+    for _ in range(5):
+        record("nitter_search", "https://a.example", "a.example", False)
+        record("nitter_search", "https://b.example", "b.example", True)
+    assert nitter._instances(pool, "search") == ["https://b.example", "https://c.example", "https://a.example"]
+    assert nitter._instances(pool, "user") == list(pool)  # user feeds keep their own record
+
+
+def test_feed_outcomes_are_recorded(monkeypatch):
+    from scraperx.method_telemetry import method_stats
+
+    monkeypatch.setattr(nitter, "_http_get", lambda url, timeout=25: (429, {}, "") if "a.example" in url
+                        else (200, {}, RSS))
+    nitter.search("#demo", limit=1, instances=("https://a.example", "https://b.example"), delay_s=0)
+    stats = method_stats("nitter_search")
+    assert stats["https://a.example"]["successes"] == 0 and stats["https://b.example"]["successes"] == 1
+
+
 def test_instances_from_env(monkeypatch):
     monkeypatch.setenv("SCRAPERX_NITTER_INSTANCES", "https://one.example/, https://two.example")
     assert nitter._instances(None) == ["https://one.example", "https://two.example"]

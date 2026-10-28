@@ -791,23 +791,39 @@ class RedditScraper:
 
     # -- mirror rotation ----------------------------------------------------
 
-    def _mirror_order(self) -> list[str]:
+    def _mirror_order(self, via: str = "plain") -> list[str]:
         """Round-robin from the mirror after the last one used (spreads load over the volunteer
-        instances); a mirror that failed in the last _MIRROR_COOLDOWN_S goes to the back."""
+        instances), then re-ranked by each mirror's recorded success through `via` ("plain" HTTP or
+        "stealth" browser; they fail differently, plain always meets Anubis) so a new process does not
+        start on a mirror that has been failing (safereddit.com: 404 / empty pages, 2026-10-28). Equal
+        records keep the rotation. A mirror that failed in this process in the last _MIRROR_COOLDOWN_S
+        goes to the back."""
         n = len(self.mirrors)
         rot = [self.mirrors[(self._next_mirror + i) % n] for i in range(n)]
+        if self.adaptive_tiers and n > 1:
+            rot = _preferred_order(f"reddit_mirror_{via}", rot)
         now = time.monotonic()
         up = [m for m in rot if self._mirror_down_until.get(m, 0.0) <= now]
         return up + [m for m in rot if m not in up]
 
-    def _mirror_served(self, instance: str) -> None:
+    def _mirror_note(self, via: str, instance: str, ok: bool, t0: float, status: int | None) -> None:
+        if self.adaptive_tiers:
+            _telemetry_record(f"reddit_mirror_{via}", instance, urlparse(instance).hostname or instance, ok,
+                              latency_ms=(time.monotonic() - t0) * 1000.0, http_status=status)
+
+    def _mirror_served(self, instance: str, via: str = "plain", t0: float | None = None) -> None:
         self.last_mirror_used = instance
         self._mirror_down_until.pop(instance, None)
         self._next_mirror = (self.mirrors.index(instance) + 1) % len(self.mirrors)
+        if t0 is not None:
+            self._mirror_note(via, instance, True, t0, 200)
         logger.info("reddit: served by mirror %s", instance)
 
-    def _mirror_failed(self, instance: str) -> None:
+    def _mirror_failed(self, instance: str, via: str = "plain", t0: float | None = None,
+                       status: int | None = None) -> None:
         self._mirror_down_until[instance] = time.monotonic() + _MIRROR_COOLDOWN_S
+        if t0 is not None:
+            self._mirror_note(via, instance, False, t0, status)
 
     # -- adaptive tier ladder ------------------------------------------------
 
@@ -902,20 +918,21 @@ class RedditScraper:
     def _tier2_html(self, path_with_query: str) -> str:
         """Probe redlib mirrors (rotation order); return the first 200 HTML body."""
         errors: list[str] = []
-        for instance in self._mirror_order():
+        for instance in self._mirror_order("plain"):
             url = f"{instance}{path_with_query}"
             self._polite_wait()
+            t0 = time.monotonic()
             try:
                 status, body = _http_get(url, user_agent=self.user_agent, timeout=self.timeout)
             except Exception as e:
-                self._mirror_failed(instance)
+                self._mirror_failed(instance, "plain", t0)
                 errors.append(f"{instance}: {type(e).__name__}: {e}")
                 continue
             problem = _redlib_page_problem(body) if status == 200 and body.strip() else f"HTTP {status}"
             if problem is None:
-                self._mirror_served(instance)
+                self._mirror_served(instance, "plain", t0)
                 return body
-            self._mirror_failed(instance)
+            self._mirror_failed(instance, "plain", t0, status)
             errors.append(f"{instance}: {problem}")
         raise RedditError(f"all {len(self.mirrors)} redlib mirrors failed: {'; '.join(errors)}")
 
@@ -963,8 +980,9 @@ class RedditScraper:
         """
         fetch_stealth = self._stealth_fn()
         errors: list[str] = []
-        for instance in self._mirror_order():
+        for instance in self._mirror_order("stealth"):
             url = f"{instance}{path_with_query}"
+            t0 = time.monotonic()
             try:
                 # wait_ms=0: the stealth default adds a fixed 2 s after the page settles. Measured 2026-10-28 on
                 # redlib.r4fo.com: that pause was 2.0 s on every page, and without it 12 of 12 pages (listings,
@@ -973,15 +991,15 @@ class RedditScraper:
                 # waiting for #column_one instead of network idle was not faster.
                 content, status = fetch_stealth(url, self.timeout * 3, wait_ms=0)
             except Exception as e:
-                self._mirror_failed(instance)
+                self._mirror_failed(instance, "stealth", t0)
                 errors.append(f"{instance}: {type(e).__name__}: {e}")
                 continue
             ok_status = (status is None or status == 200) and content.strip()
             problem = _redlib_page_problem(content) if ok_status else f"HTTP {status}"
             if problem is None:
-                self._mirror_served(instance)
+                self._mirror_served(instance, "stealth", t0)
                 return content
-            self._mirror_failed(instance)
+            self._mirror_failed(instance, "stealth", t0, status if isinstance(status, int) else None)
             errors.append(f"{instance}: {problem}")
         raise RedditError(
             f"stealth mirror fetch failed on all {len(self.mirrors)} instances: {'; '.join(errors)}"

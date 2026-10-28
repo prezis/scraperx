@@ -236,12 +236,17 @@ def test_reddit_records_tier_attempts_to_ledger(tmp_path, monkeypatch):
     assert posts and s.last_tier_used == "redlib"
 
     events = [json.loads(x) for x in ledger.read_text().strip().splitlines()]
-    by_method = {e["method"]: e for e in events}
+    tiers = [e for e in events if e["scraper"] == "reddit"]
+    by_method = {e["method"]: e for e in tiers}
     assert by_method["old_json"]["success"] is False
     assert by_method["old_json"]["http_status"] == 500  # recovered from error msg
     assert by_method["redlib"]["success"] is True
     assert by_method["redlib"]["target_domain"] == "redlib-mirrors"
-    assert all(e["scraper"] == "reddit" for e in events)
+    # each mirror is also recorded on its own (namespace reddit_mirror_<plain|stealth>), so a new process can rank
+    # the mirrors; nothing else lands in the ledger
+    mirrors = [e for e in events if e["scraper"] != "reddit"]
+    assert mirrors and all(e["scraper"] == "reddit_mirror_plain" for e in mirrors)
+    assert mirrors[-1]["success"] is True and mirrors[-1]["method"].startswith("https://")
 
 
 def test_reddit_tier_order_adapts_after_recorded_failures(tmp_path, monkeypatch):
