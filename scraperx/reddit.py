@@ -205,6 +205,9 @@ class RedditPost:
         tier:          Which tier produced this post:
                        "old_json" | "redlib" | "stealth" | "stealth_mirror".
         stickied:      Pinned by the moderators (top of the subreddit listing).
+        score_as_of:   Unix time the score / num_comments were read: the scrape time on the live tiers, the
+                       archive's own retrieval time on "arctic_shift" (an item is archived seconds after it is
+                       posted and re-read about 36 h later, so a young archived item shows 0 or 1). 0.0 = unknown.
 
     On the mirror tiers ``upvote_ratio`` stays 0.0 (redlib does not show it),
     ``score`` is 0 where the subreddit hides scores, ``url`` is the Reddit
@@ -228,6 +231,7 @@ class RedditPost:
     flair: str = ""
     tier: str = "old_json"
     stickied: bool = False
+    score_as_of: float = 0.0
 
     @property
     def full_url(self) -> str:
@@ -247,6 +251,8 @@ class RedditComment:
         parent_id:   Fullname of parent (``t3_...`` post or ``t1_...`` comment).
         created_utc: Unix epoch seconds, 0.0 when unknown.
         permalink:   Site-relative permalink when available.
+        subreddit, link_id, link_title: The thread the comment belongs to (filled by comment search).
+        score_as_of: Unix time the score was read (see RedditPost.score_as_of).
     """
 
     id: str
@@ -257,6 +263,10 @@ class RedditComment:
     parent_id: str = ""
     created_utc: float = 0.0
     permalink: str = ""
+    subreddit: str = ""
+    link_id: str = ""
+    link_title: str = ""
+    score_as_of: float = 0.0
 
 
 @dataclass
@@ -691,6 +701,18 @@ def _parse_redlib_thread_html(html: str, permalink: str, *, tier: str = "redlib"
 # ---------------------------------------------------------------------------
 
 
+def _stamp_scores(result: Any, ts: float) -> None:
+    """The live tiers read scores at scrape time: record it on every post / comment of a result."""
+    items: list[Any] = []
+    if isinstance(result, RedditThread):
+        items = [result.post, *result.comments]
+    elif isinstance(result, list):
+        items = result
+    for it in items:
+        if isinstance(it, (RedditPost, RedditComment)) and not it.score_as_of:
+            it.score_as_of = ts
+
+
 class RedditScraper:
     """Tiered no-login Reddit scraper. See module docstring for the tiers.
 
@@ -811,6 +833,7 @@ class RedditScraper:
                     http_status=200,
                 )
             self.last_tier_used = name
+            _stamp_scores(result, time.time())
             return result
         raise RedditError(f"{desc} failed all tiers: {' | '.join(errors)}")
 

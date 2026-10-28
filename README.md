@@ -868,7 +868,16 @@ scraperx reddit search alchemy --sub ethereum                          # one sub
 scraperx reddit sub solana --sort new
 scraperx reddit thread https://www.reddit.com/r/solana/comments/<id>/<slug>/ [--json]
 # stderr names the source, e.g. "source: stealth_mirror via https://redlib.r4fo.com"
+scraperx reddit comments '"wallet drained"' --sub ledgerwallet -n 60   # search COMMENTS (Arctic Shift archive)
+scraperx reddit user some_author -n 50                                 # an author's posts + comments (archive)
 ```
+
+Comment search and author history come from the Arctic Shift archive (`scraperx.reddit_archive`, plain HTTP, no
+browser): full-text needs a subreddit or an author, very active subreddits can time out server-side (422, retried
+once), and an archived item's `score` is from archive time (0/1 until it is re-read ~36 h after posting). Every post
+and comment carries `score_as_of` (when its numbers were read) so live and archived scores are never mixed blindly.
+Live 2026-10-28: "drained" in r/ledgerwallet comments → 60 hits over 14 days in 5 s; a user's 20 posts + 20 comments
+in 2 s. Mirror listings page past 25 posts through redlib's NEXT link (50 posts of r/solana/new in 51 s).
 
 Politeness is built in (~1-2 req/s with jitter; mirrors are rotated so the load spreads
 over the volunteer instances, and a failed mirror waits 10 min at the back). Every result

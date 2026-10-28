@@ -178,9 +178,17 @@ def _main_reddit():
     p_sub.add_argument("--sort", default="hot", choices=["hot", "new", "top", "rising"])
     p_thread = sub.add_parser("thread", help="a thread with its comments")
     p_thread.add_argument("url")
+    p_comments = sub.add_parser("comments", help="search COMMENTS (Arctic Shift archive; needs --sub or --author)")
+    p_comments.add_argument("query", nargs="*", help="full text: words, \"phrase\", a OR b, -word")
+    p_comments.add_argument("--sub", help="subreddit")
+    p_comments.add_argument("--author", help="author")
+    p_user = sub.add_parser("user", help="an author's newest posts and comments (Arctic Shift archive)")
+    p_user.add_argument("name")
     for p in (p_search, p_sub):
-        p.add_argument("--limit", "-n", type=int, default=25, help="max posts (default 25; mirror tiers give at most 25)")
-    for p in (p_search, p_sub, p_thread):
+        p.add_argument("--limit", "-n", type=int, default=25, help="max posts (default 25; more = one fetch per 25)")
+    for p in (p_comments, p_user):
+        p.add_argument("--limit", "-n", type=int, default=50, help="max items (default 50)")
+    for p in (p_search, p_sub, p_thread, p_comments, p_user):
         p.add_argument("--json", action="store_true", help="output JSON")
         p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     args = parser.parse_args()
@@ -197,6 +205,9 @@ def _handle_reddit(args):
 
     from .reddit import RedditError, RedditScraper
 
+    if args.action in ("comments", "user"):
+        _handle_reddit_archive(args)
+        return
     s = RedditScraper()
     try:
         if args.action == "thread":
@@ -279,6 +290,37 @@ def _main_telegram():
             for line in p.text.splitlines():
                 print(f"  {line}")
             print()
+
+
+def _handle_reddit_archive(args):
+    from dataclasses import asdict
+
+    from .reddit import RedditError
+    from .reddit_archive import iso, search_comments, user_history
+
+    try:
+        if args.action == "user":
+            posts, comments = user_history(args.name, args.limit)
+        else:
+            posts, comments = [], search_comments(
+                " ".join(args.query) or None, subreddit=args.sub, author=args.author, limit=args.limit
+            )
+    except RedditError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    if args.json:
+        print(json.dumps({"posts": [asdict(p) for p in posts], "comments": [asdict(c) for c in comments]},
+                         indent=2, ensure_ascii=False))
+    else:
+        for p in posts:
+            _print_reddit_post(p)
+        for c in comments:
+            print(f"[{c.score:>5}] {iso(c.created_utc)[:16]}  r/{c.subreddit}  u/{c.author}  in: {c.link_title[:70]}")
+            for line in c.body.splitlines()[:8]:
+                print(f"  {line}")
+            print(f"  https://www.reddit.com{c.permalink}\n")
+    print(f"source: arctic_shift archive ({len(posts)} posts, {len(comments)} comments; scores as of archive "
+          "time, 0/1 for items younger than ~36 h)", file=sys.stderr)
 
 
 def _print_reddit_post(p, comments: str | None = None) -> None:
