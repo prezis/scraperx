@@ -66,6 +66,13 @@ def _guard_terminal() -> None:
 
 def main():
     _guard_terminal()
+    if len(sys.argv) > 1 and sys.argv[1] == "skill":
+        _main_skill()
+        return
+    if not (len(sys.argv) > 1 and sys.argv[1] == "doctor"):
+        from scraperx.skill_install import maybe_hint
+
+        maybe_hint()
     # Check if first arg is a subcommand
     if len(sys.argv) > 1:
         subcmd = sys.argv[1]
@@ -156,6 +163,44 @@ def _main_search():
         format="%(levelname)s: %(message)s",
     )
     _handle_search(args)
+
+
+def _main_skill():
+    parser = argparse.ArgumentParser(
+        prog="scraperx skill",
+        description="The scraperx Agent Skill for Claude Code (ships inside the package). It tells an agent which "
+        "scraperx command answers which question.",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "skill"
+    sub = parser.add_subparsers(dest="action", required=True)
+    p_install = sub.add_parser("install", help="copy the skill to ~/.claude/skills/scraperx/ (or a project)")
+    p_install.add_argument("--project", metavar="DIR", help="install into DIR/.claude/skills/scraperx/ instead")
+    p_status = sub.add_parser("status", help="is the skill installed, and is it current?")
+    p_status.add_argument("--project", metavar="DIR", help="also look in DIR/.claude/skills/")
+    sub.add_parser("path", help="print the packaged SKILL.md path")
+    args = parser.parse_args()
+
+    from pathlib import Path
+
+    from scraperx.skill_install import install_skill, packaged_skill_path, skill_status
+
+    if args.action == "path":
+        print(packaged_skill_path())
+    elif args.action == "install":
+        target = install_skill(project=Path(args.project) if args.project else None)
+        print(f"installed: {target}")
+        print("Claude Code picks it up in new sessions (and live, if it is watching that skills directory).")
+    else:
+        st = skill_status(project=Path(args.project) if args.project else None)
+        if not st.claude_code:
+            print("Claude Code not found on this machine (~/.claude missing).")
+        elif st.installed:
+            state = "current" if st.up_to_date else "OLDER than this scraperx: run `scraperx skill install`"
+            print(f"installed ({st.installed}), {state}: {st.path}")
+        else:
+            print("not installed: run `scraperx skill install`, or install the plugin:")
+            print("  claude plugin marketplace add prezis/scraperx && claude plugin install scraperx@scraperx")
+        sys.exit(0 if st.installed and st.up_to_date else 1)
 
 
 def _main_reddit():

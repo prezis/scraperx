@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] — 2026-10-28
+
+### Added — X, Reddit and Telegram without logging in; the scraperx skill ships with the package
+
+* **Claude Code skill as part of the product**: `scraperx/skills/scraperx/SKILL.md` ships inside the package;
+  `scraperx skill install|status|path`; the repository is also a Claude Code plugin marketplace
+  (`claude plugin marketplace add prezis/scraperx`, `claude plugin install scraperx@scraperx`); the CLI proposes the
+  install once a day when Claude Code is present without a current skill; `scraperx doctor` reports it.
+* **X without an X account or key**: search (`#tag`, `"phrase"`, `from:`, `since:`) through public Nitter instances'
+  search RSS (`scraperx.nitter`, instance rotation, `SCRAPERX_NITTER_INSTANCES`), in the `search_tweets` auto order
+  after the keyed backends; account timelines, replies and trends through the FxTwitter v2 API
+  (`scraperx.x_timeline`, retries, Nitter fallback); `Tweet.reposted_by`. CLI `scraperx x user|replies|trends`.
+* **Keyed X search backends**: Desearch (Bittensor subnet 22, `SCRAPERX_DESEARCH_API_KEY`) and Brave Search API
+  (`SCRAPERX_BRAVE_API_KEY`); DuckDuckGo's bot-check page is now reported by name.
+* **Reddit**: the redlib parser reads post and comment blocks (exact scores, authors, times, flair, bodies, comment
+  trees; sidebar links are no longer posts); site-wide search; mirror rotation and paging past 25 posts;
+  `scraperx.reddit_archive` (Arctic Shift) for comment search and author history; `score_as_of` on every post and
+  comment. CLI `scraperx reddit search|sub|thread|comments|user`.
+* **Telegram public channels** through the `t.me/s/` web preview (`scraperx.telegram`, CLI `scraperx telegram`).
+
+### Fixed
+
+* `smart_fetch` counted any non-empty body as success: HTTP ≥ 400 pages and vendor block pages served with 200
+  (`detect_block_page`: Cloudflare, Imperva, DataDome, PerimeterX, Akamai, Anubis, Gandalf, Jina) are failures now;
+  the keyless Jina leg (0 successes in 2,363 attempts) runs only with `JINA_API_KEY`.
+* The CLI strips terminal control characters from everything it prints (scraped text is untrusted).
+* Explorer chips parse single-quoted markup (issue #21).
+* The offline test suite passes without DNS (stand-in addresses for the test hosts).
+
 ## [1.12.0] — 2026-10-20
 
 ### Added — Scrapling, wired in properly (see `docs/SCRAPLING.md`)

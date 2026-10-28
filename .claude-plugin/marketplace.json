@@ -1,0 +1,18 @@
+{
+  "name": "scraperx",
+  "description": "scraperx: X, Reddit and Telegram without logging in, walled web pages, transcripts. One plugin: the scraperx skill.",
+  "owner": {
+    "name": "prezis",
+    "url": "https://github.com/prezis"
+  },
+  "plugins": [
+    {
+      "name": "scraperx",
+      "source": "./",
+      "description": "Skill that routes find/search/read requests for X, Reddit, Telegram and walled pages to the scraperx CLI (pip install the package too).",
+      "category": "research",
+      "homepage": "https://github.com/prezis/scraperx",
+      "tags": ["scraping", "twitter", "reddit", "telegram", "no-login"]
+    }
+  ]
+}

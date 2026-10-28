@@ -5,13 +5,13 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/prezis/scraperx/actions/workflows/ci.yml/badge.svg)](https://github.com/prezis/scraperx/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.12.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.13.0-informational.svg)](CHANGELOG.md)
 
 ScraperX fetches social-media posts, transcribes videos, and verifies authenticity — without API keys or account credentials. Built on stdlib, with optional extras for perceptual image hashing, web scraping helpers, and GPU-accelerated speech-to-text.
 
 > **Status: beta.** Core functionality is stable — **923 tests, fully offline** (as of 1.9.0 the
 > suite no longer talks to the internet; it used to, silently, and that had been failing CI since
-> 2026-07-17). Newest in **1.12.0**: **Scrapling wired in properly** (spider crawler, sanitised Markdown, adaptive selectors, scrapling-0.5 XHR capture; see [docs/SCRAPLING.md](docs/SCRAPLING.md)). Previously, in **1.11.0**: **the cascade LEARNS which leg works, per host** — on a
+> 2026-07-17). Newest in **1.13.0**: **X, Reddit and Telegram without logging in** (Nitter-RSS X search, FxTwitter-v2 timelines and replies, a real redlib parser, Arctic Shift comment search) and **the scraperx skill ships with the package** (`scraperx skill install`, or the repo as a Claude Code plugin). In **1.12.0**: **Scrapling wired in properly** (spider crawler, sanitised Markdown, adaptive selectors, scrapling-0.5 XHR capture; see [docs/SCRAPLING.md](docs/SCRAPLING.md)). Previously, in **1.11.0**: **the cascade LEARNS which leg works, per host** — on a
 > walled site it stops re-trying the three legs that always 403 and goes straight to the one that
 > works. 1.10.0 added `stealth_session()` (N URLs on ONE browser, ~50% faster, measured); 1.9.0
 > made the *cookie* persist. 1.8.0 brought the Cloudflare-bypass leg, no-login Reddit, frame-OCR
@@ -71,6 +71,28 @@ pip install "scraperx[vision,video-discovery,whisper] @ git+https://github.com/p
 ```
 
 System tools (optional): `yt-dlp` for audio download on YouTube/Vimeo whisper path; `whisper` CLI as fallback when `faster-whisper` not installed.
+
+### Use with Claude Code (the scraperx skill)
+
+scraperx ships an Agent Skill (`scraperx/skills/scraperx/SKILL.md`, inside the package) that tells Claude which
+scraperx command answers which question: X search and timelines, Reddit posts / comments / users, Telegram channels,
+walled pages, transcripts. Without it an agent tends to say "can't search X without an account". Two ways in:
+
+```bash
+# A. from the installed package (any machine with scraperx):
+scraperx skill install            # -> ~/.claude/skills/scraperx/SKILL.md   (--project DIR for one repo)
+scraperx skill status             # installed? current with this scraperx?
+
+# B. as a Claude Code plugin, straight from this repository (it is its own marketplace):
+claude plugin marketplace add prezis/scraperx
+claude plugin install scraperx@scraperx
+```
+
+The plugin brings the skill only; the commands it routes to come from the package, so install scraperx too
+(`pip install "scraperx[stealth] @ git+https://github.com/prezis/scraperx.git"` then `scrapling install`). When
+Claude Code is on the machine and the skill is missing or older than the installed scraperx, the CLI says so once a
+day on stderr (`SCRAPERX_NO_SKILL_HINT=1` silences it), and `scraperx doctor` reports it. After upgrading scraperx,
+run `scraperx skill install` again (plugin users: `claude plugin update scraperx@scraperx`).
 
 ---
 
@@ -786,7 +808,7 @@ Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup + t
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Current: **1.12.0** (2026-10-20).
+See [CHANGELOG.md](CHANGELOG.md). Current: **1.13.0** (2026-10-28).
 
 ## Security
 

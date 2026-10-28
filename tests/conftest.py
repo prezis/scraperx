@@ -29,6 +29,9 @@ def _isolated_method_telemetry(tmp_path, monkeypatch):
     monkeypatch.setenv(
         "SCRAPERX_METHOD_TELEMETRY_PATH", str(tmp_path / "method-telemetry.jsonl")
     )
+    # The CLI proposes installing the Claude Code skill by reading ~/.claude and stamping ~/.scraperx: never from a
+    # test run (tests/test_skill_install.py drives it against a tmp home explicitly).
+    monkeypatch.setenv("SCRAPERX_NO_SKILL_HINT", "1")
 
 
 @pytest.fixture(autouse=True)

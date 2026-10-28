@@ -117,6 +117,10 @@ def run_doctor(as_json: bool = False) -> int:
         "nvidia-smi": _check_binary("nvidia-smi"),
     }
 
+    from scraperx.skill_install import skill_status
+
+    skill = skill_status()
+
     if as_json:
         import json
 
@@ -127,6 +131,7 @@ def run_doctor(as_json: bool = False) -> int:
             "ollama": ollama,
             "optional_libraries": {k: {"installed": v[0], "version": v[1]} for k, v in optionals.items()},
             "system_tools": {k: {"present": bool(v), "info": v} for k, v in binaries.items()},
+            "claude_code_skill": vars(skill),
         }
         print(json.dumps(report, indent=2))
         return 0
@@ -193,6 +198,21 @@ def run_doctor(as_json: bool = False) -> int:
         else:
             hint = bin_hints.get(name, "")
             print(f"  {CROSS} {name:12} — {hint}")
+    print()
+
+    # Claude Code skill (shipped in the package: scraperx/skills/scraperx/SKILL.md)
+    print("Claude Code skill:")
+    if not skill.claude_code:
+        print(f"  {WARN} Claude Code not found (~/.claude missing) — nothing to install")
+    elif skill.installed and skill.up_to_date:
+        print(f"  {CHECK} installed ({skill.installed}) and current: {skill.path}")
+    elif skill.installed:
+        print(f"  {CROSS} installed ({skill.installed}) but older than this scraperx: {skill.path}")
+        print(f"    {WARN} Update: scraperx skill install")
+    else:
+        print(f"  {CROSS} not installed — scraperx skill install")
+        print(f"    {WARN} or as a plugin: claude plugin marketplace add prezis/scraperx && "
+              "claude plugin install scraperx@scraperx")
     print()
 
     # Summary + recommendations

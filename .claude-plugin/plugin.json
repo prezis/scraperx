@@ -1,0 +1,15 @@
+{
+  "name": "scraperx",
+  "displayName": "scraperx",
+  "version": "1.13.0",
+  "description": "Read and search X/Twitter, Reddit and public Telegram channels without logging in, plus walled web pages, video transcripts and GitHub repo checks, through the scraperx CLI. The skill routes each question to the command measured to work.",
+  "author": {
+    "name": "prezis",
+    "url": "https://github.com/prezis"
+  },
+  "homepage": "https://github.com/prezis/scraperx",
+  "repository": "https://github.com/prezis/scraperx",
+  "license": "MIT",
+  "keywords": ["scraping", "twitter", "x", "reddit", "telegram", "nitter", "transcription", "no-login"],
+  "skills": ["./scraperx/skills/"]
+}

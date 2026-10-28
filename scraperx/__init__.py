@@ -114,7 +114,7 @@ from .social_db import SocialDB
 from .thread import Thread, get_thread
 from .token_extractor import TokenMention, extract_token_mentions
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 
 __all__ = [
     "AvatarMatcher",
