@@ -734,9 +734,14 @@ Summary:
 
 ```bash
 pytest -v
+# proven offline: a fresh network namespace with only loopback up (the crawl tests serve pages on 127.0.0.1)
+unshare -rn sh -c 'ip link set lo up && exec python -m pytest -q'
 ```
 
-All tests are fully mocked — no network, no subprocess, no filesystem side effects. Runs in ~3 seconds. CI runs on Python 3.10, 3.11, 3.12.
+All tests are mocked — no external network, no subprocess, no filesystem side effects. Runs in ~3 seconds. CI runs on
+Python 3.10, 3.11, 3.12. Without DNS, `tests/conftest.py` gives the stand-in hosts (`example.com`, …) a public address so
+smart_fetch's SSRF guard does not refuse them; nothing connects to it. 2026-10-28 offline: 1025 passed, 1 skipped.
+Opt-in live smoke tests: `SCRAPERX_LIVE=1`.
 
 ---
 

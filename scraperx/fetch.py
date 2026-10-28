@@ -31,6 +31,12 @@ Usage:
     result = smart_fetch(url, prefer="urllib", strict=True)
 
 Cache hits are cheap; cascade misses fall through silently (errors collected on result.errors).
+
+What counts as success (2026-10-28): a non-empty body with HTTP status < 400 that is not a block page
+(``detect_block_page``). Before that date any non-empty body counted: the ledger held 8 playwright "successes",
+4 of them HTTP 404/403 pages, each cached for 24 h. A 404/410 from a browser leg ends the cascade (the page does
+not exist; a stealth retry cannot change that). The jina leg runs only with a key (``JINA_API_KEY``): keyless
+r.jina.ai answered 403 to this host, 0 successes in 2,363 attempts.
 """
 
 from __future__ import annotations
@@ -40,6 +46,7 @@ import hashlib
 import ipaddress
 import logging
 import os
+import re
 import socket
 import sqlite3
 import threading
@@ -57,7 +64,7 @@ from scraperx.method_telemetry import record as _telemetry_record
 logger = logging.getLogger(__name__)
 
 # Public — re-exported via scraperx/__init__.py
-__all__ = ["FetchResult", "smart_fetch", "FetchMode"]
+__all__ = ["FetchResult", "smart_fetch", "FetchMode", "LegUnavailable", "detect_block_page"]
 
 FetchMode = Literal["jina", "urllib", "playwright", "scrapling_stealth"]
 # Cascade order: cheap-and-clean first, expensive bot-bypass last.
@@ -79,6 +86,45 @@ DEFAULT_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 scraperx-fetch/1.0"
 )
 JINA_BASE = "https://r.jina.ai/"
+_JINA_KEY_ENV = ("JINA_API_KEY", "SCRAPERX_JINA_API_KEY")
+
+
+class LegUnavailable(RuntimeError):
+    """A cascade leg that cannot run here (missing key). Recorded on result.errors, never in telemetry:
+    it says nothing about the target site."""
+
+
+# A block or challenge page served INSTEAD of the content, often with HTTP 200 (Imperva: Scrapling issue #472,
+# 2026-09-30, ~83 chars "Request unsuccessful. Incapsula incident ID"). Each marker is one the vendor's block page
+# carries and a normal page behind the same vendor does not: Cloudflare, DataDome, PerimeterX and Imperva also
+# inject their sensor scripts into normal pages, so "challenge-platform", "datadome", "perimeterx" or
+# "_Incapsula_Resource" alone would flag real content. Only the head of the page is scanned.
+_BLOCK_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("cloudflare_challenge", re.compile(
+        r"window\._cf_chl_opt|<title>\s*Just a moment\.\.\.\s*</title>|<title>\s*Attention Required! \| Cloudflare",
+        re.IGNORECASE)),
+    ("imperva", re.compile(r"Incapsula incident ID", re.IGNORECASE)),
+    ("datadome", re.compile(r"captcha-delivery\.com", re.IGNORECASE)),
+    ("perimeterx", re.compile(r"id=[\"']px-captcha[\"']|_pxCaptcha", re.IGNORECASE)),
+    ("akamai", re.compile(
+        r"<title>\s*Access Denied\s*</title>[\s\S]{0,4000}errors(?:\.|&#46;)edgesuite(?:\.|&#46;)net", re.IGNORECASE)),
+    ("anubis", re.compile(
+        r"<title>\s*Making sure you(?:'|&#39;|\u2019)re not a bot!?\s*</title>|/\.within\.website/x/cmd/anubis/",
+        re.IGNORECASE)),
+    ("jina_upstream_error", re.compile(r"^Warning: Target URL returned error \d{3}", re.MULTILINE)),
+)
+_BLOCK_SCAN_CHARS = 20_000
+
+
+def detect_block_page(content: str) -> str | None:
+    """The vendor whose block / challenge page this is ("cloudflare_challenge", "imperva", "datadome",
+    "perimeterx", "akamai", "anubis", "jina_upstream_error"), or None for a page that looks like content."""
+    head = (content or "")[:_BLOCK_SCAN_CHARS]
+    for vendor, rx in _BLOCK_MARKERS:
+        if rx.search(head):
+            return vendor
+    return None
+
 
 # Schema mirror — defense in depth, matches social_db.py._SCHEMA.
 # Every consumer guarantees its own table exists; idempotent CREATE IF NOT EXISTS.
@@ -287,12 +333,29 @@ def _check_ssrf(url: str, *, allow_private: bool = False) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _jina_key() -> str | None:
+    for name in _JINA_KEY_ENV:
+        v = (os.environ.get(name) or "").strip()
+        if v:
+            return v
+    return None
+
+
 def _fetch_jina(url: str, timeout: int) -> tuple[str, int | None]:
-    """Fetch via Jina Reader. Returns (content, None). Raises on failure."""
-    # r.jina.ai expects a URL-encoded target appended to base; it returns clean
-    # markdown extraction. Free, no API key required.
+    """Fetch via Jina Reader. Returns (content, None). Raises on failure.
+
+    Needs a key (``JINA_API_KEY``): without one r.jina.ai answered 403 to this host in 0.4 s (2026-10-28),
+    and the ledger held 0 successes in 2,363 keyless attempts, so the leg raises LegUnavailable instead.
+    """
+    key = _jina_key()
+    if not key:
+        raise LegUnavailable(f"no Jina key in {' or '.join(_JINA_KEY_ENV)} (keyless r.jina.ai answers 403 here)")
+    # r.jina.ai expects a URL-encoded target appended to base; it returns clean markdown extraction.
     target = JINA_BASE + quote(url, safe=":/?&=#")
-    req = Request(target, headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/plain"})
+    req = Request(
+        target,
+        headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/plain", "Authorization": f"Bearer {key}"},
+    )
     with urlopen(req, timeout=timeout) as resp:  # noqa: S310 — trusted host
         body = resp.read()
         text = body.decode("utf-8", errors="replace")
@@ -611,12 +674,28 @@ def smart_fetch(
                 # outcome we want demoted next time.
                 _note(mode, False, elapsed_ms, status)
                 continue
+            if status is not None and status >= 400:
+                # The browser legs hand back the error page itself; it is not the content.
+                result.errors.append((mode, f"HTTP {status}"))
+                _note(mode, False, elapsed_ms, status)
+                if mode in _BROWSER_MODES and status in (404, 410):
+                    result.http_status = status
+                    break  # a real browser was told the page does not exist
+                continue
+            blocked = detect_block_page(content)
+            if blocked:
+                result.errors.append((mode, f"block page: {blocked}"))
+                _note(mode, False, elapsed_ms, status)
+                continue
             _note(mode, True, elapsed_ms, status)
             result.content = content
             result.mode_used = mode
             result.elapsed_ms = elapsed_ms
             result.http_status = status
             break
+        except LegUnavailable as e:
+            result.errors.append((mode, f"skipped: {e}"))
+            continue
         except Exception as e:  # noqa: BLE001 — record + advance to next leg
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             err = f"{type(e).__name__}: {e}"

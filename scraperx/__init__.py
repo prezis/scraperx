@@ -38,7 +38,7 @@ from .explorer_label import (
     page_title,
     parse_title,
 )
-from .fetch import FetchResult, smart_fetch
+from .fetch import FetchResult, detect_block_page, smart_fetch
 from .scrapling_stealth import (
     DEFAULT_STEALTH_TIMEOUT,
     ScraplingNotAvailable,
@@ -166,6 +166,7 @@ __all__ = [
     "analyze_github_repo",
     "build_search_url",
     "check_thread_authenticity",
+    "detect_block_page",
     "detect_explorer",
     "discover_repos",
     "discover_videos",
