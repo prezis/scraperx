@@ -25,3 +25,6 @@ output/
 
 # Local safety backups from filter-repo / similar rewrites — never tracked
 .git.backup-*/
+
+# claude plugin eval output (aggregate-result.json, report.html per run)
+evals/results/

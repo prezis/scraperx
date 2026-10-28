@@ -94,6 +94,16 @@ Claude Code is on the machine and the skill is missing or older than the install
 day on stderr (`SCRAPERX_NO_SKILL_HINT=1` silences it), and `scraperx doctor` reports it. After upgrading scraperx,
 run `scraperx skill install` again (plugin users: `claude plugin update scraperx@scraperx`).
 
+The skill has an eval suite (`evals/`, run with `claude plugin eval`): six cases, one per route plus one unrelated coding
+request that must not pull the skill in. Graders are deterministic (did the skill fire, did Claude run the routed
+command). 2026-10-28, claude-sonnet-5, 3 runs per case and arm: every routing case 1.00 with the plugin and 0.00 without
+it, the skill fired 15/15 times on routing prompts and 0/3 on the coding prompt; 2.63 USD for the whole suite. Run it on
+a clean checkout (a virtualenv inside the plugin directory holds hard-linked files, which the eval refuses):
+
+```bash
+claude plugin eval . --allow-tools "Bash(scraperx *)" "Bash(python -m scraperx *)" --model claude-sonnet-5 --runs 3
+```
+
 ---
 
 ## Quick start
@@ -850,6 +860,19 @@ scraperx telegram info durov
 `views` / `subscribers` are Telegram's rounded display values as ints ("1.61M" → 1610000; the text stays in
 `views_text`). Media URLs are Telegram CDN links with short-lived tokens. Live 2026-10-28: 45 messages of @durov over
 3 pages in under a second each. A private channel, a user or a bot has no preview: `TelegramError`.
+
+## Bluesky (no account)
+
+`scraperx.bluesky` reads Bluesky's public AppView over plain HTTPS: post search, an account's posts (reposts marked with
+`reposted_by`), a thread flattened depth-first, a profile. Search answers without login only on `api.bsky.app` and only
+its first page (the cursor page is refused, 403), so one search returns at most 100 posts; the rest has no such limit.
+
+```bash
+scraperx bluesky search solana wallet -n 25 [--sort latest|top]
+scraperx bluesky user bsky.app -n 50 [--no-reposts] [--replies]
+scraperx bluesky thread https://bsky.app/profile/<handle>/post/<rkey>
+scraperx bluesky profile bsky.app
+```
 
 ## Reddit scraping + self-learning method telemetry
 

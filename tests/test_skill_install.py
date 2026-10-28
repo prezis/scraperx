@@ -124,9 +124,10 @@ def _cli_help(argv: list[str], capsys) -> str:
 def test_every_command_the_skill_names_exists(capsys):
     """The skill must not promise a command the CLI does not have."""
     text = SKILL.read_text(encoding="utf-8")
-    pairs = set(re.findall(r"`scraperx (x|reddit|telegram|skill) ([a-z]+)", text))
-    pairs |= {(a, b) for a, b in re.findall(r"`(telegram|reddit|x) ([a-z]+) ", text)}
+    pairs = set(re.findall(r"`scraperx (x|reddit|telegram|bluesky|skill) ([a-z]+)", text))
+    pairs |= {(a, b) for a, b in re.findall(r"`(telegram|reddit|bluesky|x) ([a-z]+) ", text)}
     assert ("x", "user") in pairs and ("reddit", "comments") in pairs and ("telegram", "posts") in pairs
+    assert ("bluesky", "search") in pairs and ("bluesky", "thread") in pairs
     for group, action in sorted(pairs):
         assert action in _cli_help([group], capsys), f"skill names `scraperx {group} {action}`, the CLI lacks it"
     for top in ("search", "doctor", "github"):

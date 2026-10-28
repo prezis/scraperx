@@ -84,6 +84,11 @@ from .reddit import (
 from .reddit import (
     get_thread as get_reddit_thread,
 )
+from .bluesky import BlueskyError, BlueskyPost, BlueskyProfile
+from .bluesky import get_author_posts as get_bluesky_posts
+from .bluesky import get_profile as get_bluesky_profile
+from .bluesky import get_thread as get_bluesky_thread
+from .bluesky import search_posts as search_bluesky
 from .telegram import TelegramChannel, TelegramError, TelegramPost
 from .telegram import get_channel_info as get_telegram_channel
 from .telegram import get_channel_posts as get_telegram_posts
@@ -209,6 +214,13 @@ __all__ = [
     "reverse_image_search",
     "screenshot_url",
     "search_reddit",
+    "BlueskyError",
+    "BlueskyPost",
+    "BlueskyProfile",
+    "get_bluesky_posts",
+    "get_bluesky_profile",
+    "get_bluesky_thread",
+    "search_bluesky",
     "TelegramChannel",
     "TelegramError",
     "TelegramPost",

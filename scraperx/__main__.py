@@ -88,6 +88,9 @@ def main():
         if subcmd == "x":
             _main_x()
             return
+        if subcmd == "bluesky":
+            _main_bluesky()
+            return
         if subcmd == "basescan":
             _main_basescan()
             return
@@ -366,6 +369,64 @@ def _handle_reddit_archive(args):
             print(f"  https://www.reddit.com{c.permalink}\n")
     print(f"source: arctic_shift archive ({len(posts)} posts, {len(comments)} comments; scores as of archive "
           "time, 0/1 for items younger than ~36 h)", file=sys.stderr)
+
+
+def _main_bluesky():
+    parser = argparse.ArgumentParser(
+        prog="scraperx bluesky",
+        description="Bluesky without an account: post search (first page only), an account's posts, a thread, a profile",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "bluesky"
+    sub = parser.add_subparsers(dest="action", required=True)
+    p_search = sub.add_parser("search", help="posts matching a query (first result page, up to 100)")
+    p_search.add_argument("query", nargs="+")
+    p_search.add_argument("--sort", default="latest", choices=["latest", "top"])
+    p_user = sub.add_parser("user", help="an account's newest posts")
+    p_user.add_argument("handle")
+    p_user.add_argument("--replies", action="store_true", help="include the account's replies")
+    p_user.add_argument("--no-reposts", action="store_true", help="only the account's own posts")
+    p_thread = sub.add_parser("thread", help="a post and its replies")
+    p_thread.add_argument("post", help="bsky.app post URL or at:// URI")
+    p_profile = sub.add_parser("profile", help="an account's profile")
+    p_profile.add_argument("handle")
+    for p in (p_search, p_user):
+        p.add_argument("--limit", "-n", type=int, default=25, help="max posts (default 25)")
+    for p in (p_search, p_user, p_thread, p_profile):
+        p.add_argument("--json", action="store_true", help="output JSON")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from dataclasses import asdict
+
+    from .bluesky import BlueskyError, get_author_posts, get_profile, get_thread, search_posts
+
+    try:
+        if args.action == "profile":
+            result = get_profile(args.handle)
+        elif args.action == "thread":
+            result = get_thread(args.post)
+        elif args.action == "user":
+            result = get_author_posts(args.handle, args.limit, with_replies=args.replies,
+                                      include_reposts=not args.no_reposts)
+        else:
+            result = search_posts(" ".join(args.query), args.limit, sort=args.sort)
+    except BlueskyError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    if args.json:
+        payload = asdict(result) if args.action == "profile" else [asdict(p) for p in result]
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif args.action == "profile":
+        print(f"{result.display_name} (@{result.handle})  {result.followers:,} followers, {result.posts:,} posts")
+        print(f"  {result.description}")
+    else:
+        for p in result:
+            pad = "  " * p.depth
+            rp = f"  [reposted by @{p.reposted_by}]" if p.reposted_by else ""
+            print(f"{pad}{p.created_at[:16]}  @{p.author_handle}  {p.likes} likes, {p.reposts} reposts{rp}")
+            for line in p.text.splitlines():
+                print(f"{pad}  {line}")
+            print(f"{pad}  {p.url}\n")
 
 
 def _print_reddit_post(p, comments: str | None = None) -> None:

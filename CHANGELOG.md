@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scraperx.reddit_archive` (Arctic Shift) for comment search and author history; `score_as_of` on every post and
   comment. CLI `scraperx reddit search|sub|thread|comments|user`.
 * **Telegram public channels** through the `t.me/s/` web preview (`scraperx.telegram`, CLI `scraperx telegram`).
+* **Bluesky without an account** (`scraperx.bluesky`, CLI `scraperx bluesky search|user|thread|profile`); search is the
+  first result page only (Bluesky refuses the next one without login).
+* **Mirrors and Nitter instances are ranked by their recorded success** across processes (method-telemetry namespaces
+  `reddit_mirror_plain|stealth`, `nitter_search|user`).
+* **Skill eval suite** (`evals/`, `claude plugin eval`): 6 cases; every routing case 1.00 with the plugin, 0.00 without.
 
 ### Fixed
 
@@ -31,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`detect_block_page`: Cloudflare, Imperva, DataDome, PerimeterX, Akamai, Anubis, Gandalf, Jina) are failures now;
   the keyless Jina leg (0 successes in 2,363 attempts) runs only with `JINA_API_KEY`.
 * The CLI strips terminal control characters from everything it prints (scraped text is untrusted).
+* Desearch / Brave calls name their User-Agent: Cloudflare refused Python's default one (error 1010) and it read as a
+  key problem (#22); refusals are now classified from the response body.
+* Reddit mirror tiers: a 200 counts only when it is a redlib page (`#column_one`); the fixed 2 s post-load wait is gone
+  (measured: no content lost); old.reddit's login redirect is named.
 * Explorer chips parse single-quoted markup (issue #21).
 * The offline test suite passes without DNS (stand-in addresses for the test hosts).
 

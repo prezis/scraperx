@@ -1,24 +1,27 @@
 ---
 name: scraperx
-description: Read and search X/Twitter, Reddit and public Telegram channels without logging in (no account of yours is used, so nothing can be banned), plus web pages behind bot walls, YouTube/Vimeo transcripts and GitHub repo checks, through the scraperx CLI. Use whenever the user asks to find, search, read or monitor posts or pages — "find posts about…", "what are people saying on X / Reddit about…", "search by hashtag or phrase", "posts from @user", "replies under this tweet", "Reddit comments about…", "what does this redditor post", "read this Telegram channel", "znajdź posty o…", "co piszą na X / Reddicie", "szukaj po hashtagu", "sprawdź na reddicie" — or pastes an x.com, reddit.com or t.me link. Routes each question to the command measured to work and its fallback, instead of claiming it cannot be done without an account.
+description: Read and search X/Twitter, Reddit, Bluesky and public Telegram channels without logging in (no account of yours is used, so nothing can be banned), plus web pages behind bot walls, YouTube/Vimeo transcripts and GitHub repo checks, through the scraperx CLI. Use whenever the user asks to find, search, read or monitor posts or pages — "find posts about…", "what are people saying on X / Reddit about…", "search by hashtag or phrase", "posts from @user", "replies under this tweet", "Reddit comments about…", "what does this redditor post", "read this Telegram channel", "what is Bluesky saying about…", "znajdź posty o…", "co piszą na X / Reddicie", "szukaj po hashtagu", "sprawdź na reddicie" — or pastes an x.com, reddit.com or t.me link. Routes each question to the command measured to work and its fallback, instead of claiming it cannot be done without an account.
 ---
 
-# scraperx — X, Reddit, Telegram and the walled web, without accounts
+# scraperx — X, Reddit, Bluesky, Telegram and the walled web, without accounts
 
-**Never log in.** No route below uses an X, Reddit or Telegram account of the user. Public relays (FxTwitter, Nitter
-instances, redlib mirrors, the Arctic Shift archive, Telegram's web preview) do the access. Do not suggest
+**Never log in.** No route below uses an X, Reddit, Bluesky or Telegram account of the user. Public relays (FxTwitter, Nitter
+instances, redlib mirrors, the Arctic Shift archive, Bluesky's public AppView, Telegram's web preview) do the access. Do not suggest
 account-backed tools (twscrape, Telethon, cookies) unless the user asks for that risk explicitly.
 
-## 0. Is the CLI there?
+## 0. Run the routed command first
 
-Run `scraperx doctor` (or `python -m scraperx doctor`). If the command is missing:
+Go straight to the command in the table below; do not start with a diagnosis. Only if that command fails because
+scraperx itself is missing (`command not found`, `ModuleNotFoundError: scraperx`), stop and give the user both the
+install lines and the exact command you were going to run (do not install packages yourself unless the user asks):
 
 ```bash
 pip install "scraperx[stealth] @ git+https://github.com/prezis/scraperx.git"
 scrapling install          # the patched Chromium for walled sites and Reddit mirrors
 ```
 
-Add `--json` to any command below for machine-readable output. stderr names the source that answered.
+`scraperx doctor` is for a broken install, not a first step. Add `--json` to any command below for
+machine-readable output; stderr names the source that answered.
 
 ## 1. Which command for which question
 
@@ -34,6 +37,7 @@ Add `--json` to any command below for machine-readable output. stderr names the 
 | Reddit: words inside COMMENTS | `scraperx reddit comments <text> --sub <s>` (or `--author <u>`) | Arctic Shift archive |
 | Reddit: what a user posts and comments | `scraperx reddit user <name>` | Arctic Shift archive |
 | Telegram public channel | `scraperx telegram posts <ch> -n 40`, `telegram search <ch> <q>`, `telegram info <ch>` | t.me/s/ web preview |
+| Bluesky: posts by words, an account's posts, a thread, a profile | `scraperx bluesky search <q> [--sort latest\|top]`, `bluesky user <handle> [--no-reposts]`, `bluesky thread <post url>`, `bluesky profile <handle>` | public AppView (search: first page only, up to 100 posts) |
 | YouTube / Vimeo transcript | `scraperx <video url>` | captions → whisper |
 | GitHub repo trust check | `scraperx github <owner/repo>` | GitHub API + mentions |
 
@@ -42,7 +46,8 @@ search) only change the first steps of X search. Everything else needs no key.
 
 Python API, same routes: `scraperx.search_tweets`, `scraperx.x_timeline.get_user_tweets` / `get_replies`,
 `scraperx.search_reddit` / `search_subreddit` / `get_reddit_thread`, `scraperx.reddit_archive.search_comments` /
-`user_history`, `scraperx.get_telegram_posts`, `scraperx.smart_fetch` / `fetch_markdown` / `fetch_stealth` for any page.
+`user_history`, `scraperx.get_telegram_posts`, `scraperx.search_bluesky` / `get_bluesky_posts`, `scraperx.smart_fetch` /
+`fetch_markdown` / `fetch_stealth` for any page.
 
 ## 2. Read the answer correctly
 
