@@ -71,7 +71,9 @@ _DESEARCH_KEY_ENV = ("SCRAPERX_DESEARCH_API_KEY", "DESEARCH_API_KEY")
 _DESEARCH_DAYS = {"d": 1, "w": 7, "m": 31, "y": 365}
 _DESEARCH_MIN_COUNT = 10
 
-BACKENDS = ("auto", "desearch", "brave", "ddg")
+BACKENDS = ("auto", "desearch", "brave", "nitter", "ddg")
+# time_filter → an X search operator, for backends that pass the query to X's own search (Nitter).
+_SINCE_DAYS = {"d": 1, "w": 7, "m": 31, "y": 365}
 
 
 def _cache_key(query: str, time_filter: str | None) -> str:
@@ -330,6 +332,37 @@ def _desearch_search(query: str, limit: int = 10, time_filter: str | None = None
     return tweets
 
 
+def _nitter_search(query: str, limit: int, time_filter: str | None) -> list[Tweet]:
+    """Keyless X search through Nitter RSS (scraperx.nitter); time_filter becomes X's own since: operator."""
+    from scraperx.nitter import search as nitter_search
+
+    q = query
+    if time_filter in _SINCE_DAYS and "since:" not in query:
+        q = f"{query} since:{time.strftime('%Y-%m-%d', time.gmtime(time.time() - _SINCE_DAYS[time_filter] * 86400))}"
+    return nitter_search(q, limit=limit)
+
+
+def _enrich_nitter(found: list[Tweet], limit: int, enrich: bool, delay: float) -> list[Tweet]:
+    """Nitter RSS posts carry no counts; with enrich=True each is re-read through FxTwitter (likes, views, author
+    details). A post FxTwitter cannot read keeps its RSS fields (source_method "nitter")."""
+    if not enrich:
+        return found[:limit]
+    scraper = XScraper()
+    out: list[Tweet] = []
+    for t in found[:limit]:
+        try:
+            full = scraper.get_tweet(f"https://x.com/{t.author_handle}/status/{t.id}")
+            full.source_method = f"nitter+{full.source_method}"
+            full.reposted_by = full.reposted_by or t.reposted_by
+            out.append(full)
+        except Exception as e:
+            logger.warning("FxTwitter could not enrich nitter hit %s: %s", t.id, e)
+            out.append(t)
+        if delay > 0 and len(out) < min(limit, len(found)):
+            time.sleep(delay)
+    return out
+
+
 def _ddg_blocked(html: str) -> bool:
     """True when DDG answered with its bot-check page instead of results."""
     return bool(_DDG_BLOCK_RE.search(html or ""))
@@ -451,6 +484,16 @@ def search_tweets(
             source = "brave"
         elif backend == "brave":
             raise RuntimeError(f"backend='brave' needs a Brave Search API key in {' or '.join(_BRAVE_KEY_ENV)}")
+    if not urls and backend in ("auto", "nitter"):
+        try:
+            found = _nitter_search(query, limit, time_filter)
+        except Exception as e:  # NitterError: no instance gave a readable feed
+            if backend == "nitter":
+                raise
+            logger.warning("Nitter search failed, trying DuckDuckGo: %s", e)
+            found = []
+        if found or backend == "nitter":
+            return _enrich_nitter(found, limit, enrich, delay)
     if not urls and backend in ("auto", "ddg"):
         urls = _ddg_search(query, max_results=limit * 2, time_filter=time_filter)
         source = "ddg"

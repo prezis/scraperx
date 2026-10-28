@@ -51,6 +51,9 @@ def main():
         if subcmd == "telegram":
             _main_telegram()
             return
+        if subcmd == "x":
+            _main_x()
+            return
         if subcmd == "basescan":
             _main_basescan()
             return
@@ -102,8 +105,8 @@ def main():
 def _main_search():
     parser = argparse.ArgumentParser(
         prog="scraperx search",
-        description="Search tweets: Desearch (SCRAPERX_DESEARCH_API_KEY), Brave Search API (SCRAPERX_BRAVE_API_KEY), "
-        "or DuckDuckGo (no key), in that order",
+        description="Search posts on X (keywords, #tag, \"phrase\", from:user): Desearch (SCRAPERX_DESEARCH_API_KEY), "
+        "Brave Search API (SCRAPERX_BRAVE_API_KEY), Nitter RSS (no key), DuckDuckGo (no key), in that order",
     )
     parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "search"
     parser.add_argument("query", nargs="+", help="Search query")
@@ -111,10 +114,10 @@ def _main_search():
     parser.add_argument("--time", "-t", choices=["d", "w", "m", "y"], help="Time filter")
     parser.add_argument(
         "--backend",
-        choices=["auto", "desearch", "brave", "ddg"],
+        choices=["auto", "desearch", "brave", "nitter", "ddg"],
         default="auto",
-        help="auto = Desearch, then Brave, then DuckDuckGo, each keyed one only when its key is set (default); "
-        "desearch / brave / ddg = that one only",
+        help="auto = Desearch, then Brave (each only when its key is set), then Nitter RSS (no key), then DuckDuckGo "
+        "(default); desearch / brave / nitter / ddg = that one only",
     )
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--fast", action="store_true", help="Skip enrichment")
@@ -633,35 +636,88 @@ def _handle_search(args):
         print("No tweets found.", file=sys.stderr)
         sys.exit(0)
 
-    if args.json:
-        out = []
-        for t in tweets:
-            out.append(
-                {
-                    "id": t.id,
-                    "text": t.text,
-                    "author": t.author,
-                    "author_handle": t.author_handle,
-                    "likes": t.likes,
-                    "retweets": t.retweets,
-                    "replies": t.replies,
-                    "views": t.views,
-                    "media_urls": t.media_urls,
-                    "source_method": t.source_method,
-                }
-            )
+    _print_tweets(tweets, args.json, f"Found {len(tweets)} tweets for: {query}")
+
+
+def _print_tweets(tweets, as_json: bool, header: str = "") -> None:
+    if as_json:
+        out = [
+            {
+                "id": t.id,
+                "text": t.text,
+                "author": t.author,
+                "author_handle": t.author_handle,
+                "created_at": t.created_at,
+                "likes": t.likes,
+                "retweets": t.retweets,
+                "replies": t.replies,
+                "views": t.views,
+                "media_urls": t.media_urls,
+                "is_reply": t.is_reply,
+                "in_reply_to_tweet_id": t.in_reply_to_tweet_id,
+                "reposted_by": t.reposted_by,
+                "url": f"https://x.com/{t.author_handle}/status/{t.id}",
+                "source_method": t.source_method,
+            }
+            for t in tweets
+        ]
         print(json.dumps(out, indent=2, ensure_ascii=False))
-    else:
-        print(f"Found {len(tweets)} tweets for: {query}\n")
-        for i, t in enumerate(tweets, 1):
-            print(f"[{i}] @{t.author_handle} ({t.author})")
-            text_preview = t.text[:200] + ("..." if len(t.text) > 200 else "")
-            print(f"    {text_preview}")
-            if t.likes or t.views:
-                print(f"    {t.likes} likes | {t.retweets} RT | {t.views:,} views")
-            print(f"    https://x.com/{t.author_handle}/status/{t.id}")
-            print(f"    (via {t.source_method})")
-            print()
+        return
+    if header:
+        print(header + "\n")
+    for i, t in enumerate(tweets, 1):
+        rp = f"  [reposted by @{t.reposted_by}]" if t.reposted_by else ""
+        print(f"[{i}] @{t.author_handle} ({t.author}){rp}  {t.created_at or ''}")
+        text_preview = t.text[:200] + ("..." if len(t.text) > 200 else "")
+        print(f"    {text_preview}")
+        if t.likes or t.views:
+            print(f"    {t.likes} likes | {t.retweets} RT | {t.views:,} views")
+        print(f"    https://x.com/{t.author_handle}/status/{t.id}")
+        print(f"    (via {t.source_method})")
+        print()
+
+
+def _main_x():
+    parser = argparse.ArgumentParser(
+        prog="scraperx x",
+        description="X/Twitter without an X account: timelines and replies via FxTwitter v2, search via scraperx search",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "x"
+    sub = parser.add_subparsers(dest="action", required=True)
+    p_user = sub.add_parser("user", help="newest posts of an account")
+    p_user.add_argument("handle")
+    p_user.add_argument("--replies", action="store_true", help="include the account's replies")
+    p_user.add_argument("--no-reposts", action="store_true", help="only the account's own posts")
+    p_replies = sub.add_parser("replies", help="replies under a post")
+    p_replies.add_argument("post", help="post URL or id")
+    p_trends = sub.add_parser("trends", help="trending topics")
+    for p in (p_user, p_replies, p_trends):
+        p.add_argument("--limit", "-n", type=int, default=20, help="max items (default 20)")
+        p.add_argument("--json", action="store_true", help="output JSON")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from .x_timeline import FxV2Error, get_replies, get_trends, get_user_tweets
+
+    try:
+        if args.action == "trends":
+            trends = get_trends(args.limit)
+            if args.json:
+                print(json.dumps(trends, indent=2, ensure_ascii=False))
+            else:
+                for t in trends:
+                    print(t.get("name") or t.get("query") or json.dumps(t, ensure_ascii=False))
+            return
+        if args.action == "user":
+            tweets = get_user_tweets(
+                args.handle, args.limit, with_replies=args.replies, include_reposts=not args.no_reposts
+            )
+        else:
+            tweets = get_replies(args.post, args.limit)
+    except FxV2Error as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+    _print_tweets(tweets, args.json)
 
 
 def _main_basescan():

@@ -22,9 +22,11 @@ from scraperx.search import (
 
 @pytest.fixture(autouse=True)
 def _no_brave_key(monkeypatch):
-    """No test reads a real Brave key from the machine it runs on; a test that needs one sets it."""
+    """No test reads a real Brave key from the machine it runs on; a test that needs one sets it. Nitter (keyless, in
+    the auto order before DuckDuckGo) answers nothing unless a test stubs it."""
     for name in ("SCRAPERX_BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY", "SCRAPERX_DESEARCH_API_KEY", "DESEARCH_API_KEY"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(search_mod, "_nitter_search", lambda query, limit, time_filter: [])
 
 # --- HTML extraction tests ---
 

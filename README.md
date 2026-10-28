@@ -82,7 +82,9 @@ System tools (optional): `yt-dlp` for audio download on YouTube/Vimeo whisper pa
 scraperx https://x.com/user/status/123456789       # scrape a tweet
 scraperx https://x.com/user/status/123 --thread    # full thread
 scraperx @elonmusk                                 # profile
-scraperx search "Meteora DLMM" --limit 10          # search (Desearch X API if keyed, else Brave + FxTwitter, else DDG + FxTwitter)
+scraperx search '#solana "wallet drained"' -n 10    # X search: Desearch / Brave if keyed, else Nitter RSS (no key)
+scraperx x user solana -n 40 --no-reposts          # an account's posts (FxTwitter v2, no X account)
+scraperx x replies https://x.com/user/status/123   # replies under a post
 scraperx https://youtube.com/watch?v=dQw4w9WgXcQ   # YouTube transcript
 scraperx https://vimeo.com/76979871                # Vimeo transcript
 scraperx discover https://some-company.com/tour    # find embedded videos
@@ -419,16 +421,18 @@ results = search_tweets("Solana LP strategy", limit=5, time_filter="w")
 for t in results:
     print(f"@{t.author_handle}: {t.text[:120]}")
 
-# Search needs a search backend to find posts (a pasted tweet link does not).
-# DuckDuckGo (no key) now answers automated queries with a bot-check page after a few requests,
-# so set one API key on each machine:
-#   export SCRAPERX_DESEARCH_API_KEY=...     # or DESEARCH_API_KEY: Desearch X Search (Bittensor subnet 22,
-#                                            # https://console.desearch.ai), returns full posts, $0.15 per 1,000
-#                                            # posts, 10-post minimum per call; X advanced syntax (from:, #tag, "phrase")
-#   export SCRAPERX_BRAVE_API_KEY=...        # or BRAVE_SEARCH_API_KEY: Brave web search finds URLs, FxTwitter fills them
-# backend="auto" (default) asks Desearch, then Brave, then DuckDuckGo; "desearch" / "brave" / "ddg" force one.
-# No X account is used, so no X account can be banned.
-results = search_tweets("from:solana", limit=5, backend="brave")
+# X without an X account (nothing of ours that X could ban):
+#   search (keywords, #tag, "exact phrase", from:user, since:) - backend="auto" order:
+#     1. Desearch X Search API  (key: SCRAPERX_DESEARCH_API_KEY; full posts, $0.15 per 1,000 posts)
+#     2. Brave Search API       (key: SCRAPERX_BRAVE_API_KEY; finds URLs, FxTwitter fills them)
+#     3. Nitter search RSS      (no key; public instances, rotated; FxTwitter adds likes/views)
+#     4. DuckDuckGo HTML        (no key; bot-checks automated queries since 2026-10)
+results = search_tweets('#solana "wallet drained"', limit=10, time_filter="w")   # works with no key at all
+results = search_tweets("from:solana", limit=5, backend="nitter")
+
+from scraperx.x_timeline import get_user_tweets, get_replies
+timeline = get_user_tweets("solana", limit=40, include_reposts=False)   # FxTwitter v2, Nitter RSS as fallback
+replies = get_replies("https://x.com/solana/status/2115454791921152210", limit=50)
 
 mentions = extract_token_mentions("$SOL to the moon, $WIF looking strong")
 for m in mentions:

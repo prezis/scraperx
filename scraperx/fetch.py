@@ -111,6 +111,8 @@ _BLOCK_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("anubis", re.compile(
         r"<title>\s*Making sure you(?:'|&#39;|\u2019)re not a bot!?\s*</title>|/\.within\.website/x/cmd/anubis/",
         re.IGNORECASE)),
+    # Gandalf (gandalf.nerdvpn.de) fronts some Nitter instances: a meta-refresh to /.gandalf/check (2026-10-28).
+    ("gandalf", re.compile(r"/\.gandalf/check|Gandalf is checking your connection", re.IGNORECASE)),
     ("jina_upstream_error", re.compile(r"^Warning: Target URL returned error \d{3}", re.MULTILINE)),
 )
 _BLOCK_SCAN_CHARS = 20_000
@@ -118,7 +120,7 @@ _BLOCK_SCAN_CHARS = 20_000
 
 def detect_block_page(content: str) -> str | None:
     """The vendor whose block / challenge page this is ("cloudflare_challenge", "imperva", "datadome",
-    "perimeterx", "akamai", "anubis", "jina_upstream_error"), or None for a page that looks like content."""
+    "perimeterx", "akamai", "anubis", "gandalf", "jina_upstream_error"), or None for a page that looks like content."""
     head = (content or "")[:_BLOCK_SCAN_CHARS]
     for vendor, rx in _BLOCK_MARKERS:
         if rx.search(head):

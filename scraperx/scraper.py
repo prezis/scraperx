@@ -84,6 +84,8 @@ class Tweet:
     author_joined: str | None = None  # RFC 2822 string
     author_protected: bool | None = None
     is_pinned: bool | None = None
+    # Handle of the account whose timeline shows this post as a repost (the post itself is by `author_handle`).
+    reposted_by: str | None = None
     source_method: str = ""
     raw: dict = field(default_factory=dict, repr=False)
 
