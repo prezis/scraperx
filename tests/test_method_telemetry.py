@@ -214,9 +214,9 @@ def _reddit_scraper(**kw):
 
 
 REDLIB_HTML = """
-<html><body>
+<html><body><div id="column_one">
 <a href="/r/ethereum/comments/aaa111/alchemy_vs_infura/">Alchemy vs Infura</a>
-</body></html>
+</div></body></html>
 """
 
 

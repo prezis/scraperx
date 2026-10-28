@@ -87,19 +87,19 @@ THREAD_JSON = [
 ]
 
 REDLIB_SEARCH_HTML = """
-<html><body>
+<html><body><div id="column_one">
 <a href="/r/ethereum/comments/aaa111/alchemy_vs_infura/?utm=x" class="post_title">Alchemy vs Infura</a>
 <a href="/r/ethereum/comments/aaa111/alchemy_vs_infura/">57 comments</a>
 <a href="/r/ethereum/comments/bbb222/webhook_lag/">Alchemy webhook lag</a>
-</body></html>
+</div></body></html>
 """
 
 REDLIB_THREAD_HTML = """
-<html><body>
+<html><body><div id="column_one">
 <h1 class="post_title">Thread <b>title</b></h1>
 <div class="comment"><div class="comment_body"><div class="md"><p>first comment</p></div></div></div>
 <div class="comment"><div class="comment_body"><div class="md"><p>second &amp; last</p></div></div></div>
-</body></html>
+</div></body></html>
 """
 
 
@@ -424,6 +424,64 @@ def test_tier3b_stealth_mirror_html_when_stealth_json_ip_blocked(monkeypatch):
     posts = s.search_subreddit("ethereum", "alchemy")
     assert s.last_tier_used == "stealth_mirror"
     assert posts and posts[0].tier == "stealth_mirror"
+
+
+REDLIB_ERROR_PAGE = (
+    '<html><body><nav><div id="logo">redlib</div></nav><div id="error"><h1>Failed to parse page JSON data: '
+    "expected value at line 1 column 1</h1></div></body></html>"
+)
+ANUBIS_PAGE = "<html><head><title>Making sure you&#39;re not a bot!</title></head><body></body></html>"
+
+
+@pytest.mark.parametrize("bad_page", [REDLIB_ERROR_PAGE, ANUBIS_PAGE, "<html><body>maintenance</body></html>"])
+def test_a_200_that_is_not_a_redlib_page_moves_to_the_next_mirror(monkeypatch, bad_page):
+    """safereddit.com answered 200 with no posts and 404 'Failed to parse page JSON data' (2026-10-28): a mirror's
+    status says nothing; the redlib page structure (#column_one) does."""
+    seen: list[str] = []
+
+    def fake(url, *, user_agent, timeout):
+        seen.append(url)
+        if "old.reddit.com" in url:
+            return 403, ""
+        return 200, bad_page if "m1.example" in url else _fixture("listing.html")
+
+    monkeypatch.setattr(reddit_mod, "_http_get", fake)
+    s = _scraper(mirrors=("https://m1.example", "https://m2.example"), enable_stealth=False, adaptive_tiers=False)
+    posts = s.get_subreddit_posts("demo")
+    assert len(posts) == 3 and s.last_mirror_used == "https://m2.example"
+    assert s._mirror_order()[-1] == "https://m1.example"  # cooled down
+
+
+def test_redlib_page_problem_names_the_cause():
+    assert reddit_mod._redlib_page_problem(_fixture("listing.html")) is None
+    assert reddit_mod._redlib_page_problem(_fixture("thread.html")) is None
+    assert reddit_mod._redlib_page_problem(REDLIB_ERROR_PAGE) == "redlib error page"
+    assert reddit_mod._redlib_page_problem(ANUBIS_PAGE) == "block page: anubis"
+
+
+def test_old_reddit_login_wall_is_named(monkeypatch):
+    login = "<!doctype html><html><head><title>reddit.com: Log in</title></head><body><form action='/login'>"
+    monkeypatch.setattr(reddit_mod, "_http_get", _fake_http([(200, login)]))
+    with pytest.raises(RedditError, match="login page"):
+        _scraper()._tier1_json("/r/demo/new.json", {})
+
+
+def test_stealth_mirror_skips_the_fixed_post_load_wait(monkeypatch):
+    seen: list[dict] = []
+
+    def fake_stealth(url, timeout, **kw):
+        seen.append(kw)
+        if "old.reddit.com" in url:
+            return "blocked", 403
+        return _fixture("listing.html"), 200
+
+    import scraperx.scrapling_stealth as ss
+
+    monkeypatch.setattr(reddit_mod, "_http_get", _fake_http([(403, "blocked")]))
+    monkeypatch.setattr(ss, "fetch_stealth", fake_stealth)
+    s = _scraper(mirrors=("https://mirror.example",), adaptive_tiers=False)
+    s.get_subreddit_posts("demo")
+    assert s.last_tier_used == "stealth_mirror" and seen[-1] == {"wait_ms": 0}
 
 
 def test_tier3_disabled_short_circuits(monkeypatch):

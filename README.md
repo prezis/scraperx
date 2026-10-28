@@ -872,7 +872,19 @@ When this host is blocked by Reddit (the case here since 2026-07), the working p
 `stealth_mirror`: 251 successful calls 2026-07-29 → 2026-09-24, and on 2026-10-28 all five
 default mirrors served pages through it (9-14 s per page, ~1.1 GB peak RSS for the browser).
 A mirror whose own Reddit fetch fails answers 404 and the next one is tried (safereddit.com did
-that on thread pages while serving listings and search).
+that on thread pages while serving listings and search). A mirror page counts as served only when it
+is a redlib page (`#column_one`): a 200 carrying redlib's error page, an Anubis / Cloudflare page or
+anything else moves on to the next mirror. old.reddit.com's `.json` now redirects logged-out clients
+to its login page (2026-10-28); that is reported by name.
+
+Where a mirror page's time goes (measured 2026-10-28 on redlib.r4fo.com, browser Navigation Timing):
+the mirror's server answers in 1.1-2.0 s, the HTML downloads in ~0.05 s, and the rest is the browser
+waiting for the page to settle plus a fixed 2 s pause. Removed: the fixed 2 s (`wait_ms=0`; content
+complete on 12 of 12 pages without it). Measured and NOT worth building: ad blocking (a redlib page
+makes 22 requests, all to the mirror itself, none third-party), one browser for many pages (browser
+start is 0.4-0.6 s), and waiting for `#column_one` instead of network idle (parallel A/B over 8
+pages: 207.6 s vs 170.5 s, not faster). The remaining spread (9 s to 40 s per page through the
+evening) is the mirror's own load.
 
 ```python
 from scraperx.reddit import RedditScraper, search_reddit, search_subreddit, get_thread, get_subreddit_posts

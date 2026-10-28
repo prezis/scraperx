@@ -576,6 +576,20 @@ def _redlib_post_from_block(block: str, post_id: str, *, tier: str, permalink: s
     )
 
 
+def _redlib_page_problem(html: str) -> str | None:
+    """Why a mirror's 200 is not a usable redlib page, or None when it is. Every redlib listing, search and thread page
+    carries <div id="column_one">; redlib's own error page carries id="error" instead (safereddit.com: 404 "Failed to
+    parse page JSON data", and one 200 with no posts, 2026-10-28). Classified on that structure, not on a status."""
+    from scraperx.fetch import detect_block_page
+
+    blocked = detect_block_page(html)
+    if blocked:
+        return f"block page: {blocked}"
+    if 'id="column_one"' in html:
+        return None
+    return "redlib error page" if 'id="error"' in html else "not a redlib page"
+
+
 def _parse_redlib_listing_html(html: str, *, tier: str = "redlib") -> list[RedditPost]:
     """Posts from a redlib listing / search page.
 
@@ -699,6 +713,17 @@ def _parse_redlib_thread_html(html: str, permalink: str, *, tier: str = "redlib"
 # ---------------------------------------------------------------------------
 # The scraper
 # ---------------------------------------------------------------------------
+
+
+def _why_not_json(body: str, err: Exception) -> str:
+    """A non-JSON answer from old.reddit.com, named: since 2026-10-28 the .json URL answers 302 to
+    /login/?reason=lor2 for logged-out clients (urllib and the stealth browser alike), i.e. Reddit's login page."""
+    head = (body or "")[:5000].lower()
+    if head.lstrip().startswith("<"):
+        if "login" in head:
+            return "Reddit served its login page (logged-out .json is refused)"
+        return "an HTML page instead of JSON"
+    return str(err)
 
 
 def _stamp_scores(result: Any, ts: float) -> None:
@@ -872,7 +897,7 @@ class RedditScraper:
         try:
             return json.loads(body)
         except json.JSONDecodeError as e:
-            raise RedditError(f"old.reddit.com returned non-JSON for {path}: {e}") from e
+            raise RedditError(f"old.reddit.com returned non-JSON for {path}: {_why_not_json(body, e)}") from e
 
     def _tier2_html(self, path_with_query: str) -> str:
         """Probe redlib mirrors (rotation order); return the first 200 HTML body."""
@@ -886,11 +911,12 @@ class RedditScraper:
                 self._mirror_failed(instance)
                 errors.append(f"{instance}: {type(e).__name__}: {e}")
                 continue
-            if status == 200 and body.strip():
+            problem = _redlib_page_problem(body) if status == 200 and body.strip() else f"HTTP {status}"
+            if problem is None:
                 self._mirror_served(instance)
                 return body
             self._mirror_failed(instance)
-            errors.append(f"{instance}: HTTP {status}")
+            errors.append(f"{instance}: {problem}")
         raise RedditError(f"all {len(self.mirrors)} redlib mirrors failed: {'; '.join(errors)}")
 
     def _stealth_fn(self):
@@ -924,7 +950,7 @@ class RedditScraper:
         try:
             return json.loads(text)
         except json.JSONDecodeError as e:
-            raise RedditError(f"stealth fetch returned non-JSON for {path}: {e}") from e
+            raise RedditError(f"stealth fetch returned non-JSON for {path}: {_why_not_json(text, e)}") from e
 
     def _tier3_stealth_mirror_html(self, path_with_query: str) -> str:
         """Fetch a redlib mirror page through the stealth browser.
@@ -940,16 +966,23 @@ class RedditScraper:
         for instance in self._mirror_order():
             url = f"{instance}{path_with_query}"
             try:
-                content, status = fetch_stealth(url, self.timeout * 3)
+                # wait_ms=0: the stealth default adds a fixed 2 s after the page settles. Measured 2026-10-28 on
+                # redlib.r4fo.com: that pause was 2.0 s on every page, and without it 12 of 12 pages (listings,
+                # searches, a thread) still parsed complete. What else was measured, and refuted, is in the
+                # README "Reddit" section: no third-party/ad requests to block, browser start 0.4-0.6 s, and
+                # waiting for #column_one instead of network idle was not faster.
+                content, status = fetch_stealth(url, self.timeout * 3, wait_ms=0)
             except Exception as e:
                 self._mirror_failed(instance)
                 errors.append(f"{instance}: {type(e).__name__}: {e}")
                 continue
-            if (status is None or status == 200) and content.strip():
+            ok_status = (status is None or status == 200) and content.strip()
+            problem = _redlib_page_problem(content) if ok_status else f"HTTP {status}"
+            if problem is None:
                 self._mirror_served(instance)
                 return content
             self._mirror_failed(instance)
-            errors.append(f"{instance}: HTTP {status}")
+            errors.append(f"{instance}: {problem}")
         raise RedditError(
             f"stealth mirror fetch failed on all {len(self.mirrors)} instances: {'; '.join(errors)}"
         )
