@@ -23,7 +23,7 @@ from scraperx.search import (
 @pytest.fixture(autouse=True)
 def _no_brave_key(monkeypatch):
     """No test reads a real Brave key from the machine it runs on; a test that needs one sets it."""
-    for name in ("SCRAPERX_BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"):
+    for name in ("SCRAPERX_BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY", "SCRAPERX_DESEARCH_API_KEY", "DESEARCH_API_KEY"):
         monkeypatch.delenv(name, raising=False)
 
 # --- HTML extraction tests ---
@@ -281,3 +281,95 @@ def test_ddg_bot_check_page_is_named_not_read_as_no_results(tmp_path, caplog):
         assert _ddg_search("blocked query") == []
     msgs = [r.getMessage() for r in caplog.records]
     assert any("bot-check page" in m and "SCRAPERX_BRAVE_API_KEY" in m for m in msgs)
+
+
+# --- Desearch X Search backend (Bittensor subnet 22; mocked on the fields of its X Search API reference) ---
+
+DESEARCH_POST = {
+    "id": "1850000000000000001",
+    "text": "gm $SOL",
+    "url": "https://x.com/alice/status/1850000000000000001",
+    "created_at": "Mon Oct 27 23:16:40 +0000 2026",
+    "user": {"username": "alice", "name": "Alice", "id": "42", "followers_count": 1234, "verified": False, "is_blue_verified": True},
+    "reply_count": 3,
+    "retweet_count": 5,
+    "like_count": 40,
+    "quote_count": 1,
+    "view_count": 900,
+    "bookmark_count": 2,
+    "lang": "en",
+    "conversation_id": "1850000000000000001",
+    "media": [{"media_url_https": "https://pbs.twimg.com/media/a.jpg"}],
+    "is_quote_tweet": False,
+    "is_retweet": False,
+}
+
+
+def test_desearch_post_maps_to_a_full_tweet():
+    t = search_mod._tweet_from_desearch(DESEARCH_POST)
+    assert (t.id, t.text, t.author, t.author_handle, t.author_id) == ("1850000000000000001", "gm $SOL", "Alice", "alice", "42")
+    assert (t.likes, t.retweets, t.replies, t.views, t.author_followers) == (40, 5, 3, 900, 1234)
+    assert t.media_urls == ["https://pbs.twimg.com/media/a.jpg"] and t.conversation_id == "1850000000000000001"
+    assert t.source_method == "desearch" and t.lang == "en"
+    assert search_mod._tweet_from_desearch({"text": "no id"}) is None
+
+
+def test_desearch_call_shape_from_user_and_time_filter(monkeypatch):
+    seen = []
+
+    def fake_get(params, key, timeout=20):
+        seen.append((params, key))
+        return [DESEARCH_POST]
+
+    monkeypatch.setattr(search_mod, "_desearch_get", fake_get)
+    tweets = search_mod._desearch_search("from:alice $SOL", limit=3, time_filter="w", key="dk")
+    assert [t.id for t in tweets] == ["1850000000000000001"]
+    params, key = seen[0]
+    assert key == "dk" and params["query"] == "from:alice $SOL"  # X advanced-search syntax passes through
+    assert params["sort"] == "Latest" and params["count"] == 10  # newest first for from:, the 10-post minimum
+    assert len(params["start_date"]) == 10 and params["start_date"][4] == "-"
+
+
+def test_desearch_answer_may_wrap_the_list(monkeypatch):
+    monkeypatch.setattr(search_mod, "_desearch_get", lambda params, key, timeout=20: {"data": [DESEARCH_POST]})
+    assert len(search_mod._desearch_search("#solana", key="dk")) == 1
+    monkeypatch.setattr(search_mod, "_desearch_get", lambda params, key, timeout=20: {"tweets": [DESEARCH_POST, "junk"]})
+    assert len(search_mod._desearch_search("#solana", key="dk")) == 1
+
+
+def test_auto_prefers_desearch_and_skips_enrichment(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPERX_DESEARCH_API_KEY", "dk")
+    monkeypatch.setenv("SCRAPERX_BRAVE_API_KEY", "bk")
+    monkeypatch.setattr(search_mod, "_desearch_get", lambda params, key, timeout=20: [DESEARCH_POST])
+    monkeypatch.setattr(search_mod, "_brave_get", lambda *a, **k: pytest.fail("Brave asked although Desearch answered"))
+    with patch("scraperx.search._CACHE_DIR", tmp_path), patch("scraperx.search.XScraper") as MockScraper:
+        results = search_tweets("pump.fun", limit=5)
+        MockScraper.assert_not_called()  # Desearch posts are already full
+    assert [(t.id, t.source_method, t.likes) for t in results] == [("1850000000000000001", "desearch", 40)]
+
+
+def test_auto_falls_back_to_brave_when_desearch_refuses(tmp_path, monkeypatch):
+    monkeypatch.setenv("DESEARCH_API_KEY", "no-credit")
+    monkeypatch.setenv("SCRAPERX_BRAVE_API_KEY", "bk")
+
+    def refuse(params, key, timeout=20):
+        raise HTTPError("https://api.desearch.ai/twitter", 402, "Payment Required", None, None)
+
+    monkeypatch.setattr(search_mod, "_desearch_get", refuse)
+    monkeypatch.setattr(search_mod, "_brave_get", lambda params, key, timeout=15: _brave_page(["https://x.com/Bob/status/222"]))
+    with patch("scraperx.search._CACHE_DIR", tmp_path):
+        results = search_tweets("fallback", limit=1, enrich=False)
+    assert [(t.id, t.source_method) for t in results] == [("222", "brave_stub")]
+
+
+def test_backend_desearch_without_a_key_raises(tmp_path):
+    with patch("scraperx.search._CACHE_DIR", tmp_path), pytest.raises(RuntimeError, match="SCRAPERX_DESEARCH_API_KEY"):
+        search_tweets("x", backend="desearch")
+
+
+def test_backend_desearch_returns_its_answer_even_when_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPERX_DESEARCH_API_KEY", "dk")
+    monkeypatch.setattr(search_mod, "_desearch_get", lambda params, key, timeout=20: [])
+    monkeypatch.setattr(search_mod, "_ddg_search", lambda *a, **k: pytest.fail("DDG asked with backend=desearch"))
+    with patch("scraperx.search._CACHE_DIR", tmp_path):
+        assert search_tweets("nothing", backend="desearch") == []

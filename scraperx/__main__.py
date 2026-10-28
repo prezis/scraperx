@@ -96,7 +96,8 @@ def main():
 def _main_search():
     parser = argparse.ArgumentParser(
         prog="scraperx search",
-        description="Search tweets: Brave Search API (when SCRAPERX_BRAVE_API_KEY is set) or DuckDuckGo, then FxTwitter",
+        description="Search tweets: Desearch (SCRAPERX_DESEARCH_API_KEY), Brave Search API (SCRAPERX_BRAVE_API_KEY), "
+        "or DuckDuckGo (no key), in that order",
     )
     parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "search"
     parser.add_argument("query", nargs="+", help="Search query")
@@ -104,9 +105,10 @@ def _main_search():
     parser.add_argument("--time", "-t", choices=["d", "w", "m", "y"], help="Time filter")
     parser.add_argument(
         "--backend",
-        choices=["auto", "brave", "ddg"],
+        choices=["auto", "desearch", "brave", "ddg"],
         default="auto",
-        help="auto = Brave if a key is set, DuckDuckGo after it (default); brave = Brave only; ddg = DuckDuckGo only",
+        help="auto = Desearch, then Brave, then DuckDuckGo, each keyed one only when its key is set (default); "
+        "desearch / brave / ddg = that one only",
     )
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--fast", action="store_true", help="Skip enrichment")

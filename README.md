@@ -82,7 +82,7 @@ System tools (optional): `yt-dlp` for audio download on YouTube/Vimeo whisper pa
 scraperx https://x.com/user/status/123456789       # scrape a tweet
 scraperx https://x.com/user/status/123 --thread    # full thread
 scraperx @elonmusk                                 # profile
-scraperx search "Meteora DLMM" --limit 10          # search (Brave Search API if keyed, else DDG; then FxTwitter)
+scraperx search "Meteora DLMM" --limit 10          # search (Desearch X API if keyed, else Brave + FxTwitter, else DDG + FxTwitter)
 scraperx https://youtube.com/watch?v=dQw4w9WgXcQ   # YouTube transcript
 scraperx https://vimeo.com/76979871                # Vimeo transcript
 scraperx discover https://some-company.com/tour    # find embedded videos
@@ -419,11 +419,14 @@ results = search_tweets("Solana LP strategy", limit=5, time_filter="w")
 for t in results:
     print(f"@{t.author_handle}: {t.text[:120]}")
 
-# Search needs a search engine to find tweet URLs (a pasted tweet link does not).
+# Search needs a search backend to find posts (a pasted tweet link does not).
 # DuckDuckGo (no key) now answers automated queries with a bot-check page after a few requests,
-# so set a Brave Search API key (https://api.search.brave.com) on each machine:
-#   export SCRAPERX_BRAVE_API_KEY=...        # or BRAVE_SEARCH_API_KEY
-# backend="auto" (default) asks Brave first and DuckDuckGo after it; "brave" / "ddg" force one.
+# so set one API key on each machine:
+#   export SCRAPERX_DESEARCH_API_KEY=...     # or DESEARCH_API_KEY: Desearch X Search (Bittensor subnet 22,
+#                                            # https://console.desearch.ai), returns full posts, $0.15 per 1,000
+#                                            # posts, 10-post minimum per call; X advanced syntax (from:, #tag, "phrase")
+#   export SCRAPERX_BRAVE_API_KEY=...        # or BRAVE_SEARCH_API_KEY: Brave web search finds URLs, FxTwitter fills them
+# backend="auto" (default) asks Desearch, then Brave, then DuckDuckGo; "desearch" / "brave" / "ddg" force one.
 # No X account is used, so no X account can be banned.
 results = search_tweets("from:solana", limit=5, backend="brave")
 
@@ -686,9 +689,10 @@ Subcommands:
   scraperx search QUERY [OPTIONS]
     -n, --limit N         Max results (default: 10)
     -t, --time {d,w,m,y}  Day / week / month / year
-    --backend {auto,brave,ddg}
-                          auto (default) = Brave Search API when SCRAPERX_BRAVE_API_KEY
-                          is set, DuckDuckGo after it; brave / ddg = only that one
+    --backend {auto,desearch,brave,ddg}
+                          auto (default) = Desearch when SCRAPERX_DESEARCH_API_KEY is set,
+                          then Brave when SCRAPERX_BRAVE_API_KEY is set, then DuckDuckGo;
+                          desearch / brave / ddg = only that one
     --json
     --fast                Tweet IDs only (skip FxTwitter enrichment)
 

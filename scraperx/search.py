@@ -1,11 +1,13 @@
 """
 Search X/Twitter tweets: a search engine finds tweet URLs, FxTwitter resolves them to full JSON data.
 
-Discovery backends, tried in this order by default (``backend="auto"``):
+Backends, tried in this order by default (``backend="auto"``); no X account is involved in any of them:
 
-1. Brave Search API (official, keyed). Used only when a key is set in ``SCRAPERX_BRAVE_API_KEY`` (or
-   ``BRAVE_SEARCH_API_KEY``). No X account is involved, so no X account can be banned.
-2. DuckDuckGo HTML (no key, Trawlx pattern). DDG now answers automated queries with a bot-check
+1. Desearch X Search API (Bittensor subnet 22, keyed: ``SCRAPERX_DESEARCH_API_KEY`` or ``DESEARCH_API_KEY``).
+   Returns full posts, X advanced-search syntax (from:, #tag, "phrase"), billed per post.
+2. Brave Search API (official, keyed: ``SCRAPERX_BRAVE_API_KEY`` or ``BRAVE_SEARCH_API_KEY``). Returns tweet URLs,
+   FxTwitter fills them in.
+3. DuckDuckGo HTML (no key, Trawlx pattern). DDG now answers automated queries with a bot-check
    page after a few requests (measured 2026-10-28); that page is logged by name, not read as
    "no results".
 
@@ -60,7 +62,16 @@ _FROM_RE = re.compile(r"\bfrom:@?([A-Za-z0-9_]{1,15})\b", re.IGNORECASE)
 # DuckDuckGo's answer to an automated query: a bot-check page, not an empty result list.
 _DDG_BLOCK_RE = re.compile(r"anomaly|bots use DuckDuckGo|challenge-form", re.IGNORECASE)
 
-BACKENDS = ("auto", "brave", "ddg")
+# Desearch, Bittensor subnet 22 (https://www.desearch.ai/docs/api-reference/get-twitter): GET /twitter with header
+# "Authorization: <key>" (no "Bearer"); `query` is X advanced-search syntax (from:, #tag, "phrase" pass through as-is);
+# the answer is full posts (text, user, counts, media), so no FxTwitter enrichment is needed. Billed per post
+# ($0.15 / 1,000 posts, 10-post minimum per request, pricing page read 2026-10-28).
+DESEARCH_TWITTER_URL = "https://api.desearch.ai/twitter"
+_DESEARCH_KEY_ENV = ("SCRAPERX_DESEARCH_API_KEY", "DESEARCH_API_KEY")
+_DESEARCH_DAYS = {"d": 1, "w": 7, "m": 31, "y": 365}
+_DESEARCH_MIN_COUNT = 10
+
+BACKENDS = ("auto", "desearch", "brave", "ddg")
 
 
 def _cache_key(query: str, time_filter: str | None) -> str:
@@ -225,6 +236,100 @@ def _ddg_search(query: str, max_results: int = 30, time_filter: str | None = Non
     return tweet_urls[:max_results]
 
 
+def _desearch_key() -> str | None:
+    """The Desearch API key from SCRAPERX_DESEARCH_API_KEY or DESEARCH_API_KEY, or None."""
+    for name in _DESEARCH_KEY_ENV:
+        v = (os.environ.get(name) or "").strip()
+        if v:
+            return v
+    return None
+
+
+def _desearch_get(params: dict, key: str, timeout: int = 20) -> object:
+    """One Desearch /twitter call. Raises HTTPError on 401/402/429 etc."""
+    req = Request(f"{DESEARCH_TWITTER_URL}?{urlencode(params)}", headers={"Accept": "application/json", "Authorization": key})
+    with urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+
+def _desearch_posts(data: object) -> list[dict]:
+    """The post list of a Desearch answer: a bare list, or a list under data / tweets / results."""
+    if isinstance(data, list):
+        return [p for p in data if isinstance(p, dict)]
+    if isinstance(data, dict):
+        for k in ("data", "tweets", "results"):
+            if isinstance(data.get(k), list):
+                return [p for p in data[k] if isinstance(p, dict)]
+    return []
+
+
+def _int0(v: object) -> int:
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _tweet_from_desearch(p: dict) -> Tweet | None:
+    """A Desearch post as a Tweet (fields per the Desearch X Search reference); None without an id."""
+    pid = str(p.get("id") or "").strip()
+    if not pid:
+        return None
+    user = p.get("user") if isinstance(p.get("user"), dict) else {}
+    media = []
+    for m in p.get("media") or []:
+        if isinstance(m, str):
+            media.append(m)
+        elif isinstance(m, dict):
+            u = m.get("media_url_https") or m.get("media_url") or m.get("url")
+            if u:
+                media.append(str(u))
+    return Tweet(
+        id=pid,
+        text=str(p.get("text") or ""),
+        author=str(user.get("name") or ""),
+        author_handle=str(user.get("username") or ""),
+        likes=_int0(p.get("like_count")),
+        retweets=_int0(p.get("retweet_count")),
+        replies=_int0(p.get("reply_count")),
+        views=_int0(p.get("view_count")),
+        author_id=str(user.get("id") or ""),
+        media_urls=media,
+        is_quote=bool(p.get("is_quote_tweet")),
+        conversation_id=str(p["conversation_id"]) if p.get("conversation_id") else None,
+        created_at=p.get("created_at"),
+        lang=p.get("lang"),
+        author_verified=user.get("verified"),
+        author_followers=user.get("followers_count"),
+        source_method="desearch",
+    )
+
+
+def _desearch_search(query: str, limit: int = 10, time_filter: str | None = None, key: str | None = None) -> list[Tweet]:
+    """Full posts for `query` from Desearch (one call). [] when no key is set or the API refuses (the reason is logged,
+    search_tweets then falls back to Brave / DDG). "from:user" queries ask for the newest posts first."""
+    key = key or _desearch_key()
+    if not key:
+        return []
+    params = {"query": query, "count": max(_DESEARCH_MIN_COUNT, int(limit)), "sort": "Latest" if _FROM_RE.search(query) else "Top"}
+    if time_filter in _DESEARCH_DAYS:
+        start = time.gmtime(time.time() - _DESEARCH_DAYS[time_filter] * 86400)
+        params["start_date"] = time.strftime("%Y-%m-%d", start)
+    try:
+        data = _desearch_get(params, key)
+    except HTTPError as e:
+        logger.warning("Desearch refused '%s': HTTP %s (%s)", query, e.code,
+                       "bad or missing key" if e.code in (401, 403) else "no credit" if e.code == 402
+                       else "rate limit" if e.code == 429 else "error")
+        return []
+    except Exception as e:
+        logger.warning("Desearch failed for '%s': %s", query, e)
+        return []
+    tweets = [t for t in (_tweet_from_desearch(p) for p in _desearch_posts(data)) if t is not None]
+    logger.info("Desearch '%s': %d posts", query, len(tweets))
+    return tweets
+
+
 def _ddg_blocked(html: str) -> bool:
     """True when DDG answered with its bot-check page instead of results."""
     return bool(_DDG_BLOCK_RE.search(html or ""))
@@ -321,8 +426,9 @@ def search_tweets(
         enrich: If True, fetch full tweet data via FxTwitter. If False, return
                 stub Tweets with only ID and URL (fast, no API calls).
         cache_hours: How long to cache search results.
-        backend: "auto" (Brave if a key is set, DuckDuckGo if Brave finds nothing), "brave" (Brave only; raises
-                 when no key is set), or "ddg" (DuckDuckGo only).
+        backend: "auto" (Desearch if its key is set, then Brave if its key is set, then DuckDuckGo, each only when
+                 the one before found nothing), "desearch" / "brave" (that one only; raises when its key is not set),
+                 or "ddg" (DuckDuckGo only).
 
     Returns:
         List of Tweet objects sorted by discovery order (most relevant first).
@@ -330,6 +436,13 @@ def search_tweets(
     """
     if backend not in BACKENDS:
         raise ValueError(f"backend must be one of {BACKENDS}, not {backend!r}")
+    if backend in ("auto", "desearch"):
+        if _desearch_key():
+            found = _desearch_search(query, limit=limit, time_filter=time_filter)
+            if found or backend == "desearch":
+                return found[:limit]  # full posts already: no FxTwitter enrichment
+        elif backend == "desearch":
+            raise RuntimeError(f"backend='desearch' needs a Desearch API key in {' or '.join(_DESEARCH_KEY_ENV)}")
     urls: list[str] = []
     source = "ddg"
     if backend in ("auto", "brave"):
