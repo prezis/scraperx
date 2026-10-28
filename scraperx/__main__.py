@@ -48,6 +48,9 @@ def main():
         if subcmd == "reddit":
             _main_reddit()
             return
+        if subcmd == "telegram":
+            _main_telegram()
+            return
         if subcmd == "basescan":
             _main_basescan()
             return
@@ -194,6 +197,58 @@ def _handle_reddit(args):
         for p in result:
             _print_reddit_post(p)
     print(f"source: {served}", file=sys.stderr)
+
+
+def _main_telegram():
+    parser = argparse.ArgumentParser(
+        prog="scraperx telegram",
+        description="Public Telegram channels through the t.me/s/ web preview (no account, no API id)",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "telegram"
+    sub = parser.add_subparsers(dest="action", required=True)
+    p_posts = sub.add_parser("posts", help="newest messages of a channel")
+    p_posts.add_argument("channel")
+    p_posts.add_argument("--before", type=int, help="only messages older than this id")
+    p_search = sub.add_parser("search", help="messages of one channel matching a query")
+    p_search.add_argument("channel")
+    p_search.add_argument("query", nargs="+")
+    p_info = sub.add_parser("info", help="channel title, description, subscribers")
+    p_info.add_argument("channel")
+    for p in (p_posts, p_search):
+        p.add_argument("--limit", "-n", type=int, default=20, help="max messages (default 20)")
+    for p in (p_posts, p_search, p_info):
+        p.add_argument("--json", action="store_true", help="output JSON")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from dataclasses import asdict
+
+    from .telegram import TelegramError, get_channel_info, get_channel_posts, search_channel
+
+    try:
+        if args.action == "info":
+            result = get_channel_info(args.channel)
+        elif args.action == "search":
+            result = search_channel(args.channel, " ".join(args.query), args.limit)
+        else:
+            result = get_channel_posts(args.channel, args.limit, before=args.before)
+    except TelegramError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    if args.json:
+        payload = asdict(result) if args.action == "info" else [asdict(p) for p in result]
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif args.action == "info":
+        print(f"{result.title} (@{result.username}){' [verified]' if result.verified else ''}")
+        print(f"  {result.subscribers_text or '?'} subscribers\n  {result.description}")
+    else:
+        for p in result:
+            fwd = " [forwarded" + (f" from {p.forwarded_from}" if p.forwarded_from else "") + "]" if p.forwarded else ""
+            media = f" [{len(p.photos)} photo, {len(p.videos)} video]" if p.photos or p.videos else ""
+            print(f"{p.date[:16]}  {p.views_text or '?':>6} views  {p.url}{fwd}{media}")
+            for line in p.text.splitlines():
+                print(f"  {line}")
+            print()
 
 
 def _print_reddit_post(p, comments: str | None = None) -> None:

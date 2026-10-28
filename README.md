@@ -800,6 +800,31 @@ Stands on the shoulders of:
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 4× speedup over OpenAI Whisper
 - [imagehash](https://github.com/JohannesBuchner/imagehash) — perceptual hashing
 
+## Telegram public channels (no account)
+
+`scraperx.telegram` reads the web preview every public channel has at `https://t.me/s/<channel>`: plain HTTP, no
+account, API id or phone number (the route used by open-source scrapers such as axmaier/tme-s). 20 messages per page,
+paged back with `?before=<id>`; the preview's own `?q=` search works inside one channel.
+
+```python
+from scraperx import get_telegram_posts, search_telegram_channel, get_telegram_channel
+
+posts = get_telegram_posts("durov", limit=45)          # newest first: id, url, text, date, views, author,
+                                                       # forwarded / forwarded_from, photos, videos, links, reactions
+hits = search_telegram_channel("telegram", "stories")
+info = get_telegram_channel("durov")                   # title, description, verified, subscribers
+```
+
+```bash
+scraperx telegram posts durov -n 45 [--before 531] [--json]
+scraperx telegram search telegram stories
+scraperx telegram info durov
+```
+
+`views` / `subscribers` are Telegram's rounded display values as ints ("1.61M" → 1610000; the text stays in
+`views_text`). Media URLs are Telegram CDN links with short-lived tokens. Live 2026-10-28: 45 messages of @durov over
+3 pages in under a second each. A private channel, a user or a bot has no preview: `TelegramError`.
+
 ## Reddit scraping + self-learning method telemetry
 
 ### `scraperx.reddit` — tiered NO-LOGIN Reddit scraper

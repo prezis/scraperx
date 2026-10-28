@@ -84,6 +84,10 @@ from .reddit import (
 from .reddit import (
     get_thread as get_reddit_thread,
 )
+from .telegram import TelegramChannel, TelegramError, TelegramPost
+from .telegram import get_channel_info as get_telegram_channel
+from .telegram import get_channel_posts as get_telegram_posts
+from .telegram import search_channel as search_telegram_channel
 from .reverse_image import (
     DEFAULT_ENGINES,
     ENGINES,
@@ -205,6 +209,12 @@ __all__ = [
     "reverse_image_search",
     "screenshot_url",
     "search_reddit",
+    "TelegramChannel",
+    "TelegramError",
+    "TelegramPost",
+    "get_telegram_channel",
+    "get_telegram_posts",
+    "search_telegram_channel",
     "search_subreddit",
     "search_tweets",
     "smart_fetch",
