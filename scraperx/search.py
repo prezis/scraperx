@@ -7,7 +7,8 @@ Backends, tried in this order by default (``backend="auto"``); no X account is i
    Returns full posts, X advanced-search syntax (from:, #tag, "phrase"), billed per post.
 2. Brave Search API (official, keyed: ``SCRAPERX_BRAVE_API_KEY`` or ``BRAVE_SEARCH_API_KEY``). Returns tweet URLs,
    FxTwitter fills them in.
-3. DuckDuckGo HTML (no key, Trawlx pattern). DDG now answers automated queries with a bot-check
+3. Nitter search RSS (no key; public instances, rotated - scraperx.nitter). FxTwitter adds likes / views.
+4. DuckDuckGo HTML (no key, Trawlx pattern). DDG now answers automated queries with a bot-check
    page after a few requests (measured 2026-10-28); that page is logged by name, not read as
    "no results".
 
@@ -238,6 +239,35 @@ def _ddg_search(query: str, max_results: int = 30, time_filter: str | None = Non
     return tweet_urls[:max_results]
 
 
+# The keyed APIs sit behind Cloudflare, which refuses Python's default "Python-urllib/3.x" User-Agent with error 1010
+# before the request reaches the API (issue #22, 2026-10-28: Desearch answered 403 "Error 1010: Access denied" to the
+# default UA and 403 {"detail":"Forbidden"} - a real key check - to a named one). Every API call names itself.
+API_USER_AGENT = "scraperx (+https://github.com/prezis/scraperx)"
+_CF_ERROR_RE = re.compile(r"cloudflare-1xxx-errors/error-(1\d{3})|error code:?\s*(1\d{3})|Error (1\d{3})")
+
+
+def _refusal_reason(e: HTTPError) -> str:
+    """Why an API said no, from its status AND its body: a Cloudflare block is not a key problem."""
+    try:
+        body = (e.read() or b"")[:4000].decode("utf-8", errors="replace")
+    except Exception:
+        body = ""
+    cf = _CF_ERROR_RE.search(body)
+    if cf:
+        code = next(g for g in cf.groups() if g)
+        return f"Cloudflare refused the request before it reached the API (error {code}), not a key problem"
+    if e.code in (401, 403):
+        detail = ""
+        try:
+            parsed = json.loads(body)
+            detail = str(parsed.get("detail") or parsed.get("message") or parsed.get("error") or "") if isinstance(
+                parsed, dict) else ""
+        except ValueError:
+            pass
+        return "key refused" + (f": {detail[:120]}" if detail else "")
+    return {402: "no credit", 429: "rate limit"}.get(e.code, "error")
+
+
 def _desearch_key() -> str | None:
     """The Desearch API key from SCRAPERX_DESEARCH_API_KEY or DESEARCH_API_KEY, or None."""
     for name in _DESEARCH_KEY_ENV:
@@ -249,7 +279,10 @@ def _desearch_key() -> str | None:
 
 def _desearch_get(params: dict, key: str, timeout: int = 20) -> object:
     """One Desearch /twitter call. Raises HTTPError on 401/402/429 etc."""
-    req = Request(f"{DESEARCH_TWITTER_URL}?{urlencode(params)}", headers={"Accept": "application/json", "Authorization": key})
+    req = Request(
+        f"{DESEARCH_TWITTER_URL}?{urlencode(params)}",
+        headers={"Accept": "application/json", "Authorization": key, "User-Agent": API_USER_AGENT},
+    )
     with urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
@@ -320,9 +353,7 @@ def _desearch_search(query: str, limit: int = 10, time_filter: str | None = None
     try:
         data = _desearch_get(params, key)
     except HTTPError as e:
-        logger.warning("Desearch refused '%s': HTTP %s (%s)", query, e.code,
-                       "bad or missing key" if e.code in (401, 403) else "no credit" if e.code == 402
-                       else "rate limit" if e.code == 429 else "error")
+        logger.warning("Desearch refused '%s': HTTP %s (%s)", query, e.code, _refusal_reason(e))
         return []
     except Exception as e:
         logger.warning("Desearch failed for '%s': %s", query, e)
@@ -393,7 +424,7 @@ def _brave_get(params: dict, key: str, timeout: int = 15) -> dict:
     """One Brave Search API call. Raises HTTPError on 401/403/429 etc."""
     req = Request(
         f"{BRAVE_API_URL}?{urlencode(params)}",
-        headers={"Accept": "application/json", "X-Subscription-Token": key},
+        headers={"Accept": "application/json", "X-Subscription-Token": key, "User-Agent": API_USER_AGENT},
     )
     with urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
@@ -419,8 +450,7 @@ def _brave_search(query: str, max_results: int = 20, time_filter: str | None = N
         try:
             data = _brave_get(params, key)
         except HTTPError as e:
-            logger.warning("Brave Search API refused '%s': HTTP %s (%s)", q, e.code,
-                           "bad or missing key" if e.code in (401, 403) else "rate limit" if e.code == 429 else "error")
+            logger.warning("Brave Search API refused '%s': HTTP %s (%s)", q, e.code, _refusal_reason(e))
             break
         except Exception as e:
             logger.warning("Brave Search API failed for '%s': %s", q, e)

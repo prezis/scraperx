@@ -375,3 +375,68 @@ def test_backend_desearch_returns_its_answer_even_when_empty(tmp_path, monkeypat
     monkeypatch.setattr(search_mod, "_ddg_search", lambda *a, **k: pytest.fail("DDG asked with backend=desearch"))
     with patch("scraperx.search._CACHE_DIR", tmp_path):
         assert search_tweets("nothing", backend="desearch") == []
+
+
+# --- issue #22: the keyed APIs sit behind Cloudflare, which bans Python's default User-Agent (error 1010) ---
+
+
+class _CapturedReq(Exception):
+    pass
+
+
+def _capture_headers(monkeypatch):
+    seen = {}
+
+    def fake_urlopen(req, timeout):
+        seen.update({k.lower(): v for k, v in req.header_items()})
+        raise _CapturedReq()
+
+    monkeypatch.setattr(search_mod, "urlopen", fake_urlopen)
+    return seen
+
+
+@pytest.mark.parametrize("call", ["desearch", "brave"])
+def test_api_calls_send_a_user_agent(monkeypatch, call):
+    seen = _capture_headers(monkeypatch)
+    with pytest.raises(_CapturedReq):
+        if call == "desearch":
+            search_mod._desearch_get({"query": "x"}, "k")
+        else:
+            search_mod._brave_get({"q": "x"}, "k")
+    assert seen["user-agent"] == search_mod.API_USER_AGENT
+    assert "python-urllib" not in seen["user-agent"].lower()
+
+
+def _http_error(code: int, body: bytes) -> HTTPError:
+    import io
+
+    return HTTPError("https://api.desearch.ai/twitter", code, "Forbidden", None, io.BytesIO(body))
+
+
+def test_cloudflare_block_is_not_reported_as_a_key_problem():
+    body = (b'{"type":"https://developers.cloudflare.com/support/troubleshooting/http-status-codes/'
+            b'cloudflare-1xxx-errors/error-1010/","title":"Error 1010: Access denied"}')
+    reason = search_mod._refusal_reason(_http_error(403, body))
+    assert reason.startswith("Cloudflare refused") and "1010" in reason and "not a key problem" in reason
+    assert search_mod._refusal_reason(_http_error(403, b"error code: 1020")).startswith("Cloudflare refused")
+
+
+def test_api_refusals_name_their_cause():
+    assert search_mod._refusal_reason(_http_error(403, b'{"detail":"Forbidden"}')) == "key refused: Forbidden"
+    assert search_mod._refusal_reason(_http_error(401, b"")) == "key refused"
+    assert search_mod._refusal_reason(_http_error(402, b"")) == "no credit"
+    assert search_mod._refusal_reason(_http_error(429, b"")) == "rate limit"
+    assert search_mod._refusal_reason(HTTPError("u", 500, "x", None, None)) == "error"
+
+
+def test_desearch_cloudflare_refusal_is_logged_by_name(monkeypatch, caplog):
+    body = b'{"title":"Error 1010: Access denied","type":"https://developers.cloudflare.com/x/error-1010/"}'
+
+    def refuse(params, key, timeout=20):
+        raise _http_error(403, body)
+
+    monkeypatch.setattr(search_mod, "_desearch_get", refuse)
+    with caplog.at_level(logging.WARNING, logger="scraperx.search"):
+        assert search_mod._desearch_search("Quantus", key="dk") == []
+    msg = " ".join(r.getMessage() for r in caplog.records)
+    assert "Cloudflare refused" in msg and "1010" in msg and "bad or missing key" not in msg
