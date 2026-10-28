@@ -45,6 +45,9 @@ def main():
         if subcmd == "search":
             _main_search()
             return
+        if subcmd == "reddit":
+            _main_reddit()
+            return
         if subcmd == "basescan":
             _main_basescan()
             return
@@ -120,6 +123,85 @@ def _main_search():
         format="%(levelname)s: %(message)s",
     )
     _handle_search(args)
+
+
+def _main_reddit():
+    parser = argparse.ArgumentParser(
+        prog="scraperx reddit",
+        description="Reddit without an account: old.reddit.com JSON, then redlib mirrors, then the stealth browser "
+        "(headless) on reddit.com and on the mirrors; the tier that served is printed to stderr",
+    )
+    parser.add_argument("_cmd", help=argparse.SUPPRESS)  # consume "reddit"
+    sub = parser.add_subparsers(dest="action", required=True)
+    p_search = sub.add_parser("search", help="search all of Reddit, or one subreddit with --sub")
+    p_search.add_argument("query", nargs="+")
+    p_search.add_argument("--sub", help="search inside this subreddit only")
+    p_search.add_argument("--sort", default=None, choices=["relevance", "hot", "top", "new", "comments"],
+                          help="default: relevance (all of Reddit) / new (--sub)")
+    p_search.add_argument("--time", "-t", default="all", choices=["hour", "day", "week", "month", "year", "all"],
+                          help="time filter, all of Reddit only (default: all)")
+    p_sub = sub.add_parser("sub", help="a subreddit listing")
+    p_sub.add_argument("name")
+    p_sub.add_argument("--sort", default="hot", choices=["hot", "new", "top", "rising"])
+    p_thread = sub.add_parser("thread", help="a thread with its comments")
+    p_thread.add_argument("url")
+    for p in (p_search, p_sub):
+        p.add_argument("--limit", "-n", type=int, default=25, help="max posts (default 25; mirror tiers give at most 25)")
+    for p in (p_search, p_sub, p_thread):
+        p.add_argument("--json", action="store_true", help="output JSON")
+        p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+    _handle_reddit(args)
+
+
+def _handle_reddit(args):
+    from dataclasses import asdict
+
+    from .reddit import RedditError, RedditScraper
+
+    s = RedditScraper()
+    try:
+        if args.action == "thread":
+            result = s.get_thread(args.url)
+        elif args.action == "sub":
+            result = s.get_subreddit_posts(args.name, sort=args.sort, limit=args.limit)
+        elif args.sub:
+            result = s.search_subreddit(args.sub, " ".join(args.query), args.limit, sort=args.sort or "new")
+        else:
+            result = s.search(" ".join(args.query), args.limit, sort=args.sort or "relevance", time_filter=args.time)
+    except RedditError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    served = f"{s.last_tier_used} via {s.last_mirror_used}" if s.last_mirror_used else s.last_tier_used
+    if args.json:
+        payload = asdict(result) if args.action == "thread" else [asdict(p) for p in result]
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif args.action == "thread":
+        _print_reddit_post(result.post, comments=f"{len(result.comments)} loaded")
+        if result.post.selftext:
+            print(result.post.selftext + "\n")
+        for c in result.comments:
+            pad = "  " * c.depth
+            print(f"{pad}u/{c.author} ({c.score})")
+            for line in c.body.splitlines():
+                print(f"{pad}  {line}")
+    else:
+        for p in result:
+            _print_reddit_post(p)
+    print(f"source: {served}", file=sys.stderr)
+
+
+def _print_reddit_post(p, comments: str | None = None) -> None:
+    pin = " [pinned]" if p.stickied else ""
+    count = comments or f"{p.num_comments:>4}c"
+    print(f"[{p.score:>5}] {count}  {p.created_iso[:16] or '?'}  r/{p.subreddit}  u/{p.author or '?'}{pin}")
+    print(f"  {p.title}")
+    print(f"  {p.full_url}\n")
 
 
 def _main_url():

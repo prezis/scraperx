@@ -804,24 +804,43 @@ no account, no API key. Three tiers, cheapest → most resilient:
 
 1. **TIER 1 `old_json`** — `old.reddit.com/....json` (structured; browser UA
    required; one jittered retry on transient 403/429 bursts)
-2. **TIER 2 `redlib`** — public redlib/libreddit mirror pool, HTML-parsed
-   (fields degrade gracefully: titles/permalinks always, scores best-effort)
-3. **TIER 3 `stealth` / `stealth_mirror`** — scrapling stealth Chromium
+2. **TIER 2 `redlib`** — public redlib/libreddit mirror pool, round-robin, HTML-parsed
+   from redlib's post and comment blocks: exact score, author, created time, flair,
+   body, comment count, stickied; comments with author, score, depth and parent
+   (`upvote_ratio` is not shown by redlib and stays 0.0)
+3. **TIER 3 `stealth` / `stealth_mirror`** — scrapling stealth Chromium (headless)
    against the `.json` URL, then against the mirrors (beats JS-challenge
    walls AND reddit.com IP-blocks — mirrors proxy Reddit from their own IPs)
 
-```python
-from scraperx.reddit import RedditScraper, search_subreddit, get_thread, get_subreddit_posts
+When this host is blocked by Reddit (the case here since 2026-07), the working path is
+`stealth_mirror`: 251 successful calls 2026-07-29 → 2026-09-24, and on 2026-10-28 all five
+default mirrors served pages through it (9-14 s per page, ~1.1 GB peak RSS for the browser).
+A mirror whose own Reddit fetch fails answers 404 and the next one is tried (safereddit.com did
+that on thread pages while serving listings and search).
 
+```python
+from scraperx.reddit import RedditScraper, search_reddit, search_subreddit, get_thread, get_subreddit_posts
+
+posts = search_reddit("solana wallet drained", sort="new", time_filter="week")  # all of Reddit
 posts = search_subreddit("ethereum", "alchemy", limit=10, sort="new")
 thread = get_thread("https://www.reddit.com/r/ethereum/comments/abc123/x/")
 hot = get_subreddit_posts("ethereum", sort="hot", limit=25)
 # package-level: scraperx.get_reddit_thread (scraperx.get_thread is the X/Twitter one)
 ```
 
-Politeness is built in (~1-2 req/s with jitter). Every result carries
-`.tier` so you know which method produced it; `scraper.last_tier_used`
-tells you what worked last.
+```bash
+scraperx reddit search solana wallet drained --sort new -n 10        # all of Reddit
+scraperx reddit search alchemy --sub ethereum                          # one subreddit
+scraperx reddit sub solana --sort new
+scraperx reddit thread https://www.reddit.com/r/solana/comments/<id>/<slug>/ [--json]
+# stderr names the source, e.g. "source: stealth_mirror via https://redlib.r4fo.com"
+```
+
+Politeness is built in (~1-2 req/s with jitter; mirrors are rotated so the load spreads
+over the volunteer instances, and a failed mirror waits 10 min at the back). Every result
+carries `.tier` so you know which method produced it; `scraper.last_tier_used` tells you
+what worked last and `scraper.last_mirror_used` which mirror served it. Mirror pages hold
+25 posts, so a larger `limit` returns at most 25 from the mirror tiers.
 
 ### `scraperx.method_telemetry` — scrapers that LEARN which method works
 

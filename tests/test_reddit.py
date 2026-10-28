@@ -458,8 +458,140 @@ def test_package_exports():
     # scraperx.get_thread stays the X/Twitter reconstructor; Reddit is aliased.
     assert scraperx.get_reddit_thread is reddit_mod.get_thread
     assert scraperx.search_subreddit is reddit_mod.search_subreddit
+    assert scraperx.search_reddit is reddit_mod.search_reddit
     assert scraperx.get_subreddit_posts is reddit_mod.get_subreddit_posts
     assert isinstance(RedditComment(id="x", author="a", body="b"), RedditComment)
+
+
+# ---------------------------------------------------------------------------
+# Redlib post / comment blocks (markup read from public instances 2026-10-28)
+# ---------------------------------------------------------------------------
+
+_FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "redlib")
+
+
+def _fixture(name: str) -> str:
+    with open(os.path.join(_FIXTURES, name), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def test_redlib_listing_reads_post_blocks_not_sidebar_links():
+    posts = _parse_redlib_listing_html(_fixture("listing.html"), tier="stealth_mirror")
+    assert [p.id for p in posts] == ["aaa111", "bbb222", "ccc333"]  # the sidebar thread link is not a post
+    pinned, rug, link = posts
+    assert (rug.subreddit, rug.author, rug.score, rug.num_comments) == ("demo", "alice_demo", 57, 7)
+    assert rug.created_iso == "2026-10-28T11:51:38Z"
+    assert rug.title == "Is this a rug?" and rug.permalink == "/r/demo/comments/bbb222/is_this_a_rug/"
+    assert rug.selftext == "Pool emptied in one transaction." and rug.tier == "stealth_mirror"
+    assert pinned.stickied and not rug.stickied
+    assert pinned.flair == "Announcement" and pinned.title == "Weekly thread & rules"
+    assert pinned.score == 0 and pinned.num_comments == 1204  # hidden score; comma in the count
+    assert pinned.selftext == "Read the rules first.\nSecond paragraph."
+    assert (link.subreddit, link.selftext, link.num_comments) == ("other", "", 1)
+
+
+def test_redlib_thread_reads_post_and_comment_tree():
+    thread = reddit_mod._parse_redlib_thread_html(_fixture("thread.html"), "/r/demo/comments/bbb222/is_this_a_rug")
+    post = thread.post
+    assert (post.id, post.title, post.flair, post.author, post.score) == ("bbb222", "Is this a rug?", "Question", "alice_demo", 58)
+    assert post.is_self and post.selftext == "Pool emptied in one transaction.\nPrice barely moved."
+    assert post.created_iso == "2026-10-28T11:51:38Z"
+    got = [(c.id, c.depth, c.parent_id, c.author, c.score) for c in thread.comments]
+    assert got == [
+        ("c0auto", 0, "t3_bbb222", "AutoModerator", 0),
+        ("c1top", 0, "t3_bbb222", "carol_demo", 12),
+        ("c1a", 1, "t1_c1top", "dave_demo", 4),
+        ("c1a1", 2, "t1_c1a", "carol_demo", 2),
+        ("c2top", 0, "t3_bbb222", "erin_demo", 1),  # the quote inside c1top's body does not shift the depth
+    ]
+    assert thread.comments[1].body == "Price barely moved.\nThat is what a liquidity pull looks like."
+    assert thread.comments[2].permalink == "/r/demo/comments/bbb222/is_this_a_rug/c1a/"
+    assert thread.comments[4].created_utc > thread.comments[0].created_utc
+
+
+def test_mirrors_rotate_and_the_serving_one_is_named(monkeypatch):
+    seen: list[str] = []
+
+    def fake(url, *, user_agent, timeout):
+        seen.append(url)
+        return (403, "") if "old.reddit.com" in url else (200, _fixture("listing.html"))
+
+    monkeypatch.setattr(reddit_mod, "_http_get", fake)
+    s = _scraper(mirrors=("https://m1.example", "https://m2.example"), enable_stealth=False, adaptive_tiers=False)
+    s.get_subreddit_posts("demo")
+    assert s.last_mirror_used == "https://m1.example"
+    s.get_subreddit_posts("demo")
+    assert s.last_mirror_used == "https://m2.example"  # round-robin spreads the load
+    s.get_subreddit_posts("demo")
+    assert s.last_mirror_used == "https://m1.example"
+
+
+def test_failed_mirror_goes_to_the_back(monkeypatch):
+    def fake(url, *, user_agent, timeout):
+        if "old.reddit.com" in url or "m1.example" in url:
+            return 503, ""
+        return 200, _fixture("listing.html")
+
+    monkeypatch.setattr(reddit_mod, "_http_get", fake)
+    s = _scraper(mirrors=("https://m1.example", "https://m2.example", "https://m3.example"),
+                 enable_stealth=False, adaptive_tiers=False)
+    s.get_subreddit_posts("demo")
+    assert s.last_mirror_used == "https://m2.example"
+    assert s._mirror_order() == ["https://m3.example", "https://m2.example", "https://m1.example"]
+
+
+def test_thread_on_a_mirror_keeps_the_trailing_slash(monkeypatch):
+    seen: list[str] = []
+
+    def fake(url, *, user_agent, timeout):
+        seen.append(url)
+        return (403, "") if "old.reddit.com" in url else (200, _fixture("thread.html"))
+
+    monkeypatch.setattr(reddit_mod, "_http_get", fake)
+    s = _scraper(mirrors=("https://m1.example",), enable_stealth=False, adaptive_tiers=False)
+    thread = s.get_thread("https://www.reddit.com/r/demo/comments/bbb222/is_this_a_rug/?ref=share")
+    assert seen[-1] == "https://m1.example/r/demo/comments/bbb222/is_this_a_rug/"
+    assert thread.post.permalink == "/r/demo/comments/bbb222/is_this_a_rug" and len(thread.comments) == 5
+
+
+def test_tier1_success_names_no_mirror(monkeypatch):
+    monkeypatch.setattr(reddit_mod, "_http_get", _fake_http([(200, json.dumps(SEARCH_JSON))]))
+    s = _scraper()
+    s.search_subreddit("ethereum", "alchemy")
+    assert s.last_tier_used == "old_json" and s.last_mirror_used is None
+
+
+def test_site_wide_search_urls_and_validation(monkeypatch):
+    seen: list[str] = []
+
+    def fake(url, *, user_agent, timeout):
+        seen.append(url)
+        return (403, "") if "old.reddit.com" in url else (200, _fixture("listing.html"))
+
+    monkeypatch.setattr(reddit_mod, "_http_get", fake)
+    s = _scraper(mirrors=("https://m1.example",), enable_stealth=False, adaptive_tiers=False)
+    posts = s.search("solana wallet drained", limit=2, sort="new", time_filter="week")
+    assert [p.id for p in posts] == ["aaa111", "bbb222"]
+    assert seen[0].startswith("https://old.reddit.com/search.json?")
+    assert "q=solana+wallet+drained" in seen[0] and "t=week" in seen[0] and "type=link" in seen[0]
+    assert seen[-1].startswith("https://m1.example/search?q=solana+wallet+drained&type=link&sort=new&t=week")
+    with pytest.raises(RedditError):
+        s.search("x", time_filter="decade")
+    with pytest.raises(RedditError):
+        s.search("   ")
+
+
+def test_cli_reddit_search_json(monkeypatch, capsys):
+    import sys
+
+    from scraperx import __main__ as cli
+
+    monkeypatch.setattr(reddit_mod, "_http_get", _fake_http([(200, json.dumps(SEARCH_JSON))]))
+    monkeypatch.setattr(sys, "argv", ["scraperx", "reddit", "search", "alchemy", "--sub", "ethereum", "--json"])
+    cli.main()
+    out = capsys.readouterr()
+    assert [p["id"] for p in json.loads(out.out)] == ["aaa111", "bbb222"]
+    assert "source: old_json" in out.err
 
 
 # ---------------------------------------------------------------------------

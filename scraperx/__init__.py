@@ -78,6 +78,7 @@ from .reddit import (
     RedditScraper,
     RedditThread,
     get_subreddit_posts,
+    search_reddit,
     search_subreddit,
 )
 from .reddit import (
@@ -202,6 +203,7 @@ __all__ = [
     "resolve_symbol",
     "reverse_image_search",
     "screenshot_url",
+    "search_reddit",
     "search_subreddit",
     "search_tweets",
     "smart_fetch",
